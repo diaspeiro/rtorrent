@@ -1,0 +1,34 @@
+{
+  "dependencies": [
+    {
+      "name": "rtorrent",
+      "repo": "rakshasa/rtorrent",
+      "pattern": "^v\\d+\\.\\d+(\\.\\d+)?$",
+      "stripPattern": "^v"
+    },
+    {
+      "name": "curl",
+      "repo": "curl/curl",
+      "pattern": "^\\d+\\.\\d+(\\.\\d+)?$",
+      "useName": true
+    },
+    {
+      "name": "cares",
+      "repo": "c-ares/c-ares",
+      "pattern": "^v\\d+\\.\\d+(\\.\\d+)?$",
+      "stripPattern": "^v"
+    },
+    {
+      "name": "openssl",
+      "repo": "openssl/openssl",
+      "pattern": "^openssl-\\d+\\.\\d+(\\.\\d+)?$",
+      "stripPattern": "^openssl-"
+    },
+    {
+      "name": "zlib",
+      "repo": "madler/zlib",
+      "pattern": "^v\\d+\\.\\d+(\\.\\d+)?$",
+      "stripPattern": "^v"
+    }
+  ]
+}
