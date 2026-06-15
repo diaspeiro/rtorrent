@@ -19,6 +19,12 @@
       "stripPattern": "^v"
     },
     {
+      "name": "nghttp2",
+      "repo": "nghttp2/nghttp2",
+      "pattern": "^v\\d+\\.\\d+(\\.\\d+)?$",
+      "stripPattern": "^v"
+    },
+    {
       "name": "openssl",
       "repo": "openssl/openssl",
       "pattern": "^openssl-\\d+\\.\\d+(\\.\\d+)?$",
