@@ -89,7 +89,7 @@ umask 0022
 git -c advice.detachedHead=false clone --depth 1 --branch "v${RTORRENT_VERSION}" https://github.com/rakshasa/libtorrent
 cd libtorrent
 autoreconf -i
-CFLAGS="${CFLAGS// -Werror=implicit-function-declaration/}" CXXFLAGS="${CXXFLAGS// -Werror=implicit-function-declaration/}" ./configure --prefix=/opt --disable-instrumentation --disable-debug --with-posix-fallocate
+CFLAGS="${CFLAGS// -Werror=implicit-function-declaration/}" CXXFLAGS="${CXXFLAGS// -Werror=implicit-function-declaration/}" ./configure --prefix=/opt --disable-debug
 make -j$(getconf _NPROCESSORS_ONLN)
 make install
 ENDRUN
@@ -100,12 +100,8 @@ set -uex
 umask 0022
 git -c advice.detachedHead=false clone --depth 1 --branch "v${RTORRENT_VERSION}" https://github.com/rakshasa/rtorrent
 cd rtorrent
-curl -qsOJL https://github.com/rakshasa/rtorrent/commit/8e52277917c1d84cb7cef46cc7bc5544738b85f9.diff \
-    && patch -p1 < 8e52277917c1d84cb7cef46cc7bc5544738b85f9.diff
-curl -qsOJL https://github.com/rakshasa/rtorrent/commit/ecd315085418eaab537ffdef711a981c0a218660.diff \
-    && patch -p1 < ecd315085418eaab537ffdef711a981c0a218660.diff
 autoreconf -i
-CFLAGS="${CFLAGS// -Werror=implicit-function-declaration/}" CXXFLAGS="${CXXFLAGS// -Werror=implicit-function-declaration/}" ./configure --prefix=/opt --disable-debug --with-xmlrpc-tinyxml2
+CFLAGS="${CFLAGS// -Werror=implicit-function-declaration/}" CXXFLAGS="${CXXFLAGS// -Werror=implicit-function-declaration/}" ./configure --prefix=/opt --disable-debug --with-xmlrpc-tinyxml2 --without-ncurses
 make -j$(getconf _NPROCESSORS_ONLN)
 make install
 ENDRUN
