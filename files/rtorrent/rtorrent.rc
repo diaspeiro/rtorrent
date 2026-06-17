@@ -24,8 +24,8 @@ execute.throw = sh, -c, (cat,\
     "\"",(cfg.watch),"/load\" ",\
     "\"",(cfg.watch),"/start\" ")
 
-schedule2 = watch_start, 5, 10, ((load.start_verbose, (cat, (cfg.watch), "start/*.torrent"), "d.delete_tied="))
-schedule2 = watch_load,  5, 10, ((load.verbose, (cat, (cfg.watch), "load/*.torrent"), "d.delete_tied="))
+schedule = watch_start, 5, 10, ((load.start_verbose, (cat, (cfg.watch), "start/*.torrent"), "d.delete_tied="))
+schedule = watch_load,  5, 10, ((load.verbose, (cat, (cfg.watch), "load/*.torrent"), "d.delete_tied="))
 
 session.path.set = (cat, (cfg.session))
 directory.default.set = (cat, (cfg.download))
@@ -37,11 +37,9 @@ print = (cat, "Logging to ", (cfg.logfile))
 log.append_file.flush = "log", (cfg.logfile)
 log.add_output = "info", "log"
 
-encoding.add = utf8
-
 network.scgi.open_local = /ipc/rtorrent/rtorrent.sock
 
-network.http.max_open.set = 64
+network.http.max_total_connections.set = 256
 network.max_open_files.set = 32768
 network.max_open_sockets.set = 2048
 network.receive_buffer.size.set = 16M
@@ -134,7 +132,7 @@ method.insert = pyro._last_scrape.poll, simple|private,\
 
 # SCHEDULE: Check for elapsed intervals every 5 minutes, and update scrape info
 #           for active items and idle/stopped ones according to their interval settings.
-schedule2 = pyro_last_scrape_check, 333, 300,\
+schedule = pyro_last_scrape_check, 333, 300,\
     ((d.multicall2,default,\
         "branch=\"or={d.up.rate=,d.down.rate=,}\",\
             pyro._last_scrape.poll=$pyro.scrape_interval.active=,\
@@ -184,7 +182,7 @@ method.insert = d.timestamp.last_active, simple, "if=$d.peers_connected=,$cat=$s
 method.insert = d.timestamp.last_active.update, simple|private,\
     "d.custom.set=last_active,$cat=$system.time= ; branch=argument.0=,d.save_resume="
 
-schedule2 = pyro_update_last_active, 24, 42,\
+schedule = pyro_update_last_active, 24, 42,\
     "d.multicall2=started,\"branch=$d.peers_connected=,d.timestamp.last_active.update=\""
 
 method.set_key = event.download.resumed, !last_active,\
@@ -206,7 +204,7 @@ method.insert = d.last_xfer.is_active, simple,\
     "or={pyro._last_xfer_check_min_rate=$d.up.rate=,pyro._last_xfer_check_min_rate=$d.down.rate=}"
 method.insert = d.timestamp.last_xfer, simple, "if=$d.last_xfer.is_active=,$cat=$system.time=,$d.custom=last_xfer"
 
-schedule2 = pyro_update_last_xfer, 33, 17,\
+schedule = pyro_update_last_xfer, 33, 17,\
     "d.multicall2=active,\"branch=$d.last_xfer.is_active=,pyro._last_xfer_update=\""
 
 method.insert = d.timestamp.last_xfer.print, simple|private,\
