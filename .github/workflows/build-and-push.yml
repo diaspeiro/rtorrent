@@ -15,11 +15,17 @@ jobs:
       artifact-metadata: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - id: deps
-        uses: diaspeiro/actions/load-dependency-versions@c264bbda6431cdd081482f8f5d4d31c56b86244c
-      - uses: diaspeiro/actions/container-build-push@c264bbda6431cdd081482f8f5d4d31c56b86244c
+      # The Dockerfile reads .github/dependency-versions.json directly (jq) and
+      # verifies each artifact's sha256, so no version-loading action is needed.
+      # Surface any locked dependencies as a visible annotation on the run summary.
+      - name: annotate locked dependencies
+        shell: bash
+        run: |
+          jq -r 'to_entries[] | select(.value.locked == true)
+                 | "::warning title=Locked dependency::\(.key) is locked at \(.value.version) and is not auto-updated"' \
+            .github/dependency-versions.json
+      - uses: diaspeiro/actions/container-build-push@0abe8afd71378dc85aad24243702b5dc863699bb
         with:
           username: ${{ vars.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           image-name: diaspeiro/rtorrent
-          build-args: ${{ steps.deps.outputs.build-args }}
