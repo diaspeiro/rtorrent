@@ -3,38 +3,58 @@
     {
       "name": "rtorrent",
       "repo": "rakshasa/rtorrent",
+      "type": "release",
       "pattern": "^v\\d+\\.\\d+(\\.\\d+)?$",
-      "stripPattern": "^v"
+      "stripPattern": "^v",
+      "assetPattern": "^rtorrent-\\d+\\.\\d+(\\.\\d+)?\\.tar\\.gz$"
+    },
+    {
+      "name": "libtorrent",
+      "repo": "rakshasa/rtorrent",
+      "type": "release",
+      "pattern": "^v\\d+\\.\\d+(\\.\\d+)?$",
+      "stripPattern": "^v",
+      "assetPattern": "^libtorrent-\\d+\\.\\d+(\\.\\d+)?\\.tar\\.gz$"
     },
     {
       "name": "curl",
       "repo": "curl/curl",
+      "type": "release",
       "pattern": "^\\d+\\.\\d+(\\.\\d+)?$",
-      "useName": true
+      "matchReleaseName": true,
+      "assetPattern": "^curl-\\d+\\.\\d+(\\.\\d+)?\\.tar\\.gz$"
     },
     {
       "name": "cares",
       "repo": "c-ares/c-ares",
+      "type": "release",
       "pattern": "^v\\d+\\.\\d+(\\.\\d+)?$",
-      "stripPattern": "^v"
+      "stripPattern": "^v",
+      "assetPattern": "^c-ares-\\d+\\.\\d+(\\.\\d+)?\\.tar\\.gz$"
     },
     {
       "name": "nghttp2",
       "repo": "nghttp2/nghttp2",
+      "type": "release",
       "pattern": "^v\\d+\\.\\d+(\\.\\d+)?$",
-      "stripPattern": "^v"
+      "stripPattern": "^v",
+      "assetPattern": "^nghttp2-\\d+\\.\\d+(\\.\\d+)?\\.tar\\.gz$"
     },
     {
       "name": "openssl",
       "repo": "openssl/openssl",
+      "type": "release",
       "pattern": "^openssl-\\d+\\.\\d+(\\.\\d+)?$",
-      "stripPattern": "^openssl-"
+      "stripPattern": "^openssl-",
+      "assetPattern": "^openssl-\\d+\\.\\d+(\\.\\d+)?\\.tar\\.gz$"
     },
     {
       "name": "zlib",
       "repo": "madler/zlib",
+      "type": "release",
       "pattern": "^v\\d+\\.\\d+(\\.\\d+)?$",
-      "stripPattern": "^v"
+      "stripPattern": "^v",
+      "assetPattern": "^zlib-\\d+\\.\\d+(\\.\\d+)?\\.tar\\.gz$"
     }
   ]
 }
