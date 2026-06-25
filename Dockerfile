@@ -13,8 +13,8 @@ ENV CFLAGS="-O2 -I/opt/include -pipe -fno-plt -mshstk -Wformat -Wformat-security
 
 WORKDIR /build
 
-RUN --mount=type=cache,target=/var/cache/apk,sharing=locked <<ENDRUN
-apk add autoconf automake ca-certificates cmake curl gcc git jq libtool make patch perl pkgconf pkgconf-dev posix-libc-utils python-3.13 py3.13-pip py3.13-wheel tinyxml2-dev
+RUN --mount=type=cache,target=/var/cache,sharing=locked <<ENDRUN
+apk add autoconf automake ca-certificates cmake curl gcc git jq libtool make patch perl pkgconf pkgconf-dev posix-libc-utils python-3.13 py3.13-pip py3.13-wheel
 ENDRUN
 
 SHELL ["/bin/bash", "-c"]
@@ -130,7 +130,7 @@ FROM ${BASE_IMAGE} AS rtorrent
 
 ARG SOURCE_DATE_EPOCH=0
 
-RUN --mount=type=cache,target=/var/cache/apk,sharing=locked \
+RUN --mount=type=cache,target=/var/cache,sharing=locked \
     --mount=type=bind,from=build_rtorrent,source=/opt,target=/mnt/opt \
     --mount=type=bind,from=build_rtorrent,source=/build/wheels,target=/mnt/wheels \
     --mount=type=bind,source=files,target=/mnt/files <<ENDRUN
@@ -143,7 +143,6 @@ python3 -m venv /opt/venv
 cp -a /mnt/files/. /
 find /docker-entrypoint.d -type f -regex '.*\.\(sh\|envsh\)$' -print0 | xargs -r0 chmod +x
 chmod +x /docker-entrypoint.sh
-rm -rf /var/cache/apk/* /var/cache/ldconfig /var/cache/misc
 find / -xdev -exec touch -hd "@${SOURCE_DATE_EPOCH}" {} + || true
 ENDRUN
 
