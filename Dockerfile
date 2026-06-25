@@ -68,15 +68,12 @@ make install
 ENDRUN
 
 # Build curl
-# add patch for https://github.com/curl/curl/issues/21547
 RUN --mount=type=bind,source=.github/dependency-versions.json,target=/build/dv.json \
     --mount=type=bind,source=scripts/fetch-dep.sh,target=/usr/local/bin/fetch-dep <<ENDRUN
 set -uex
 umask 0022
 fetch-dep curl
 cd curl
-curl -qsOJL https://github.com/curl/curl/commit/2a2104f3cff44bb28bb570a093be52bbeeed8f23.diff \
-	&& patch -p1 < 2a2104f3cff44bb28bb570a093be52bbeeed8f23.diff
 cmake -DCMAKE_INSTALL_PREFIX=/opt -DCMAKE_INCLUDE_PATH=/opt/include -DCMAKE_LIBRARY_PATH=/opt/lib -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_RPATH=/opt/lib -DBUILD_EXAMPLES=off -DBUILD_TESTING=off -DBUILD_LIBCURL_DOCS=off -DBUILD_MISC_DOCS=off -DENABLE_CURL_MANUAL=off -DHTTP_ONLY=on -DENABLE_ARES=on -DCURL_USE_OPENSSL=on -DCURL_USE_LIBPSL=off -DENABLE_UNIX_SOCKETS=off -DCURL_USE_LIBSSH2=off -DUSE_LIBIDN2=off -DCURL_DISABLE_PROXY=on -DCURL_DISABLE_HSTS=on .
 make -j$(getconf _NPROCESSORS_ONLN)
 make install
