@@ -1,4 +1,4 @@
-!/bin/sh
+#!/bin/sh
 # Fetch, verify (sha256), and extract a dependency declared in
 # .github/dependency-versions.json (bind-mounted at $DV_JSON, default /build/dv.json).
 #
