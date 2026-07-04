@@ -1,0 +1,237 @@
+#!/opt/venv/bin/python
+import fcntl
+import os
+import shutil
+import subprocess
+import sys
+import time
+
+import pyrosimple
+
+INCOMPLETE = "/downloads/incomplete"
+DST = "/downloads/complete"
+STAGING = DST + "/.staging"
+LOCK = "/run/rtmove.lock"
+RSYNC_TIMEOUT = 600
+
+
+class MoveError(Exception):
+    pass
+
+
+def log(msg):
+    print(int(time.time()), "move:", msg)
+
+
+def within(parent, child):
+    try:
+        child = os.path.realpath(child)
+        parent = os.path.realpath(parent)
+        return child != parent and os.path.commonpath([child, parent]) == parent
+    except ValueError:
+        return False
+
+
+def same_fs(a, b):
+    try:
+        return os.stat(a).st_dev == os.stat(b).st_dev
+    except OSError:
+        return False
+
+
+def query(proxy, state):
+    return proxy.d.multicall.filtered(
+        "main",
+        "equal=d.custom=move_state,cat=" + state,
+        "d.hash=", "d.custom=tm_completed",
+    )
+
+
+def sweep(proxy):
+    for infohash, base, state in proxy.d.multicall.filtered(
+        "main", "equal=d.wanted_chunks=,value=0",
+        "d.hash=", "d.base_path=", "d.custom=move_state",
+    ):
+        if state or not within(INCOMPLETE, base.rstrip("/")):
+            continue
+        requeue(proxy, infohash, "swept")
+
+
+def finalize(proxy, infohash):
+    try:
+        proxy.d.start(infohash)
+        proxy.d.custom.set(infohash, "move_state", "")
+        proxy.d.custom.set(infohash, "move_dest", "")
+        proxy.d.save_resume(infohash)
+    except Exception as e:
+        log(f"finalize failed {infohash}: {e}")
+
+
+def park(proxy, infohash, reason=""):
+    try:
+        proxy.d.custom.set(infohash, "move_state", "error")
+        proxy.d.save_resume(infohash)
+    except Exception as e:
+        log(f"park failed {infohash}: {e}")
+        return
+    log(f"parked {infohash}: {reason}" if reason else f"parked {infohash}")
+
+
+def requeue(proxy, infohash, reason=""):
+    try:
+        proxy.d.custom.set(infohash, "move_state", "queued")
+        proxy.d.save_resume(infohash)
+    except Exception as e:
+        log(f"requeue failed {infohash}: {e}")
+        return
+    log(f"queued {infohash}: {reason}" if reason else f"queued {infohash}")
+
+
+def delete_source(path):
+    if not within(INCOMPLETE, path) or not os.path.exists(path):
+        return
+    if os.path.isdir(path) and not os.path.islink(path):
+        shutil.rmtree(path)
+    else:
+        os.remove(path)
+
+
+def sweep_staging(active):
+    try:
+        entries = os.listdir(STAGING)
+    except FileNotFoundError:
+        return
+    except OSError as e:
+        log(f"staging sweep failed: {e}")
+        return
+    for name in entries:
+        if name in active:
+            continue
+        path = os.path.join(STAGING, name)
+        if within(DST, path):
+            shutil.rmtree(path, ignore_errors=True)
+
+
+def move_one(proxy, infohash):
+    proxy.d.custom.set(infohash, "move_state", "moving")
+    proxy.d.save_resume(infohash)
+
+    try:
+        src = proxy.d.base_path(infohash).rstrip("/")
+    except Exception:
+        raise MoveError("base_path unavailable")
+
+    if within(DST, src):
+        log(f"already at destination {os.path.basename(src)} [{infohash}]")
+        finalize(proxy, infohash)
+        return
+    if not within(INCOMPLETE, src) or not os.path.exists(src):
+        raise MoveError("source missing")
+
+    name = os.path.basename(src)
+    stage_dir = os.path.join(STAGING, infohash)
+    final = os.path.join(DST, name)
+
+    try:
+        claimed = proxy.d.custom(infohash, "move_dest")
+    except Exception:
+        claimed = ""
+
+    resuming = claimed == final and os.path.lexists(final)
+    if os.path.lexists(final) and not resuming:
+        raise MoveError("destination exists")
+
+    if resuming:
+        log(f"resuming {name} [{infohash}]")
+    elif same_fs(src, DST):
+        log(f"moving {name} [{infohash}]")
+        proxy.d.custom.set(infohash, "move_dest", final)
+        proxy.d.save_resume(infohash)
+        os.rename(src, final)
+    else:
+        log(f"moving {name} [{infohash}]")
+        try:
+            os.makedirs(stage_dir, exist_ok=True)
+            rsync = ["rsync", "-a", f"--timeout={RSYNC_TIMEOUT}", "--", src, stage_dir + "/"]
+            if subprocess.run(rsync).returncode != 0:
+                raise MoveError("rsync failed")
+            proxy.d.custom.set(infohash, "move_dest", final)
+            proxy.d.save_resume(infohash)
+            os.rename(os.path.join(stage_dir, name), final)
+        finally:
+            shutil.rmtree(stage_dir, ignore_errors=True)
+
+    try:
+        proxy.d.directory.set(infohash, DST)
+        proxy.d.open(infohash)
+        base = proxy.d.base_path(infohash).rstrip("/")
+    except Exception:
+        raise MoveError("repoint failed")
+    if not within(DST, base):
+        raise MoveError("repoint mismatch")
+
+    try:
+        delete_source(src)
+    except Exception as e:
+        log(f"source cleanup failed {infohash}: {e}")
+    log(f"moved {name} [{infohash}]")
+    finalize(proxy, infohash)
+
+
+def main():
+    sys.stdout.reconfigure(write_through=True)
+
+    if sys.argv[1:2] == ["--unpark"]:
+        proxy = pyrosimple.connect().open()
+        for infohash in sys.argv[2:]:
+            requeue(proxy, infohash, "unparked")
+        return
+
+    lock = open(LOCK, "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        return
+
+    proxy = pyrosimple.connect().open()
+
+    try:
+        for infohash, _ in query(proxy, "moving"):
+            requeue(proxy, infohash, "recovered")
+        sweep(proxy)
+    except Exception as e:
+        log(f"recovery/sweep failed: {e}")
+
+    handled = set()
+    try:
+        queued = query(proxy, "queued")
+        queued.sort(key=lambda row: int(row[1]) if (row[1] or "").isdigit() else 0)
+        sweep_staging({row[0] for row in queued})
+    except Exception as e:
+        log(f"queue query failed: {e}")
+        queued = []
+    for infohash, _ in queued:
+        handled.add(infohash)
+        try:
+            move_one(proxy, infohash)
+        except MoveError as e:
+            park(proxy, infohash, str(e))
+        except Exception as e:
+            park(proxy, infohash, f"unexpected: {e}")
+
+    fcntl.flock(lock, fcntl.LOCK_UN)
+
+    try:
+        pending = any(hash not in handled for hash, _ in query(proxy, "queued"))
+    except Exception:
+        pending = False
+
+    if pending:
+        try:
+            os.execv(sys.executable, [sys.executable, os.path.realpath(__file__)])
+        except OSError:
+            pass
+
+
+if __name__ == "__main__":
+    main()
