@@ -8,7 +8,7 @@ network.port_range.set = (cat,(system.env,RTORRENT_PORT),"-",(system.env,RTORREN
 method.insert = cfg.basedir, private|const|string, "/rtorrent/"
 method.insert = cfg.download_incomplete, private|const|string, "/downloads/incomplete"
 method.insert = cfg.download_complete, private|const|string, "/downloads/complete"
-method.insert = cfg.logfile, private|const|string, "/dev/null"
+method.insert = cfg.logfile, private|const|string, "/dev/stdout"
 method.insert = cfg.pidfile, private|const|string, "/tmp/rtorrent.pid"
 method.insert = cfg.session, private|const|string, (cat,(cfg.basedir),"data/session/")
 method.insert = cfg.watch, private|const|string, (cat,(cfg.basedir),"data/watch/")
@@ -57,10 +57,10 @@ method.set_key = event.download.erased,       !log, "d.log_event_sized=erased"
 # SCHEDULE: activity summary every 5 min (first sample after 60s)
 schedule = log_stats, 60, 900,\
     ((print, (cat,\
-        "stats: torrents=", (view.size, "", "main"),\
-        " started=",        (view.size, "", "started"),\
-        " seeding=",        (view.size, "", "seeding"),\
-        " complete=",       (view.size, "", "complete"),\
+        "stats: torrents=", (view.size, "main"),\
+        " started=",        (view.size, "started"),\
+        " seeding=",        (view.size, "seeding"),\
+        " complete=",       (view.size, "complete"),\
         " down=", (convert.xb, (throttle.global_down.rate)), "/s",\
         " up=",   (convert.xb, (throttle.global_up.rate)),   "/s")))
 
