@@ -26,21 +26,22 @@ session.path.set = (cat, (cfg.session))
 directory.default.set = (cat, (cfg.download_incomplete))
 execute.nothrow = sh, -c, (cat, "echo >", (cfg.pidfile), " ",(system.pid))
 
-print = (cat, "Logging to ", (cfg.logfile))
-log.append_file.flush = "log", (cfg.logfile)
-log.add_output = "info", "log"
+method.insert = d.relay_log, simple|private,\
+    "execute.nothrow.bg = /rtorrent/bin/rtlog, (argument.0)"
+
+d.relay_log = (cat, "Logging to ", (cfg.logfile))
 
 # HELPERS: one-line entries (libtorrent prepends an epoch timestamp)
 #   d.log_event        -> "<verb>: <name> [<hash>]"
 #   d.log_event_sized  -> "<verb>: <name> (<size>) [<hash>]"
 #   d.log_finished     -> "finished: <name> (<size> in <elapsed>) [<hash>]"
 method.insert = d.log_event, simple|private,\
-    "print = (cat, (argument.0), \": \", (d.name), \" [\", (d.hash), \"]\")"
+    "d.relay_log = (cat, (argument.0), \": \", (d.name), \" [\", (d.hash), \"]\")"
 method.insert = d.log_event_sized, simple|private,\
-    "print = (cat, (argument.0), \": \", (d.name),\
+    "d.relay_log = (cat, (argument.0), \": \", (d.name),\
         \" (\", (convert.xb, (d.size_bytes)), \") [\", (d.hash), \"]\")"
 method.insert = d.log_finished, simple|private,\
-    "print = (cat, \"finished: \", (d.name),\
+    "d.relay_log = (cat, \"finished: \", (d.name),\
         \" (\", (convert.xb, (d.size_bytes)),\
         (if, (d.custom, \"tm_started\"),\
             (cat, \" in \", (convert.elapsed_time, (d.custom, \"tm_started\"))),\
@@ -56,7 +57,7 @@ method.set_key = event.download.erased,       !log, "d.log_event_sized=erased"
 
 # SCHEDULE: activity summary every 5 min (first sample after 60s)
 schedule = log_stats, 60, 900,\
-    ((print, (cat,\
+    ((d.relay_log, (cat,\
         "stats: torrents=", (view.size, "main"),\
         " started=",        (view.size, "started"),\
         " seeding=",        (view.size, "seeding"),\
