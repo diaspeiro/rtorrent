@@ -190,7 +190,7 @@ def main():
     try:
         lock = open(LOCK, "w")
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
+    except OSError as e:
         log(f"cannot acquire lock {LOCK}: {e}")
         return
 
@@ -203,35 +203,33 @@ def main():
     except Exception as e:
         log(f"recovery/sweep failed: {e}")
 
-    handled = set()
-    try:
-        queued = query(proxy, "queued")
-        queued.sort(key=lambda row: int(row[1]) if (row[1] or "").isdigit() else 0)
-        sweep_staging({row[0] for row in queued})
-    except Exception as e:
-        log(f"queue query failed: {e}")
-        queued = []
-    for infohash, _ in queued:
-        handled.add(infohash)
+    # Drain the queue while holding the lock; items that arrive mid-run are
+    # picked up by the re-query. `seen` bounds the loop and stops reprocessing.
+    seen = set()
+    first = True
+    while True:
         try:
-            move_one(proxy, infohash)
-        except MoveError as e:
-            park(proxy, infohash, str(e))
+            rows = query(proxy, "queued")
         except Exception as e:
-            park(proxy, infohash, f"unexpected: {e}")
+            log(f"queue query failed: {e}")
+            break
+        if first:
+            sweep_staging({row[0] for row in rows})
+            first = False
+        batch = [row for row in rows if row[0] not in seen]
+        if not batch:
+            break
+        batch.sort(key=lambda row: int(row[1]) if (row[1] or "").isdigit() else 0)
+        for infohash, _ in batch:
+            seen.add(infohash)
+            try:
+                move_one(proxy, infohash)
+            except MoveError as e:
+                park(proxy, infohash, str(e))
+            except Exception as e:
+                park(proxy, infohash, f"unexpected: {e}")
 
     fcntl.flock(lock, fcntl.LOCK_UN)
-
-    try:
-        pending = any(hash not in handled for hash, _ in query(proxy, "queued"))
-    except Exception:
-        pending = False
-
-    if pending:
-        try:
-            os.execv(sys.executable, [sys.executable, os.path.realpath(__file__)])
-        except OSError:
-            pass
 
 
 if __name__ == "__main__":
