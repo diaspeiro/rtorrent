@@ -86,7 +86,7 @@ set -uex
 umask 0022
 fetch-dep libtorrent
 cd libtorrent
-curl -fsSL https://github.com/rakshasa/libtorrent/compare/master...fffe-cloexec_fixup.diff -o /tmp/lt_cloexec_fix.diff
+curl -fsSL https://github.com/rakshasa/libtorrent/commit/d40c9f072e70271fcc9b174a18f7a8d8598c3830.diff -o /tmp/lt_cloexec_fix.diff
 patch -p1 < /tmp/lt_cloexec_fix.diff
 autoreconf -fiv
 CFLAGS="${CFLAGS// -Werror=implicit-function-declaration/}" CXXFLAGS="${CXXFLAGS// -Werror=implicit-function-declaration/}" ./configure --prefix=/opt --disable-debug
