@@ -101,7 +101,7 @@ set -uex
 umask 0022
 fetch-dep rtorrent
 cd rtorrent
-curl -fsSL https://github.com/rakshasa/rtorrent/compare/master...fix/exec-order.diff -o /tmp/rt_exec_order_fix.diff
+curl -fsSL https://patch-diff.githubusercontent.com/raw/rakshasa/rtorrent/pull/1849.diff -o /tmp/rt_exec_order_fix.diff
 patch -p1 < /tmp/rt_exec_order_fix.diff
 autoreconf -fiv
 CFLAGS="${CFLAGS// -Werror=implicit-function-declaration/}" CXXFLAGS="${CXXFLAGS// -Werror=implicit-function-declaration/}" ./configure --prefix=/opt --disable-debug --with-xmlrpc-tinyxml2 --without-ncurses

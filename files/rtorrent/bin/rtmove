@@ -37,11 +37,11 @@ def same_fs(a, b):
         return os.stat(a).st_dev == os.stat(b).st_dev
     except OSError:
         return False
-
+           1
 
 def query(proxy, state):
     return proxy.d.multicall.filtered(
-        "main",
+        "", "main",
         "equal=d.custom=move_state,cat=" + state,
         "d.hash=", "d.custom=tm_completed",
     )
@@ -49,7 +49,7 @@ def query(proxy, state):
 
 def sweep(proxy):
     for infohash, base, state in proxy.d.multicall.filtered(
-        "main", "equal=d.wanted_chunks=,value=0",
+        "", "main", "equal=d.wanted_chunks=,value=0",
         "d.hash=", "d.base_path=", "d.custom=move_state",
     ):
         if state or not within(INCOMPLETE, base.rstrip("/")):
@@ -118,8 +118,8 @@ def move_one(proxy, infohash):
 
     try:
         src = proxy.d.base_path(infohash).rstrip("/")
-    except Exception:
-        raise MoveError("base_path unavailable")
+    except Exception as e:
+        raise MoveError(f"base_path unavailable: {e}")
 
     if within(DST, src):
         log(f"already at destination {os.path.basename(src)} [{infohash}]")
@@ -162,11 +162,12 @@ def move_one(proxy, infohash):
             shutil.rmtree(stage_dir, ignore_errors=True)
 
     try:
+        proxy.d.close(infohash)
         proxy.d.directory.set(infohash, DST)
         proxy.d.open(infohash)
         base = proxy.d.base_path(infohash).rstrip("/")
-    except Exception:
-        raise MoveError("repoint failed")
+    except Exception as e:
+        raise MoveError(f"repoint failed: {e}")
     if not within(DST, base):
         raise MoveError("repoint mismatch")
 
