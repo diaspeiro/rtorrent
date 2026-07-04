@@ -11,7 +11,7 @@ import pyrosimple
 INCOMPLETE = "/downloads/incomplete"
 DST = "/downloads/complete"
 STAGING = DST + "/.staging"
-LOCK = "/run/rtmove.lock"
+LOCK = "/rtorrent/data/rtmove.lock"
 RSYNC_TIMEOUT = 600
 
 
@@ -187,10 +187,11 @@ def main():
             requeue(proxy, infohash, "unparked")
         return
 
-    lock = open(LOCK, "w")
     try:
+        lock = open(LOCK, "w")
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
+        log(f"cannot acquire lock {LOCK}: {e}")
         return
 
     proxy = pyrosimple.connect().open()
