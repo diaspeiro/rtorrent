@@ -13,8 +13,8 @@ method.insert = cfg.pidfile, private|const|string, "/tmp/rtorrent.pid"
 method.insert = cfg.session, private|const|string, (cat,(cfg.basedir),"data/session/")
 method.insert = cfg.watch, private|const|string, (cat,(cfg.basedir),"data/watch/")
 
-log.open_file.flush "" logfile (cat, (cfg.logfile))
-log.add_output "" info logfile
+log.open_file.flush = logfile, (cat, (cfg.logfile))
+log.add_output = info, logfile
 log.log = info, (cat, "rtorrent starting, logging to ", (cfg.logfile))
 
 # Create instance directories
