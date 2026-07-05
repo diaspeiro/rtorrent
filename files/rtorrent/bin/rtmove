@@ -134,7 +134,6 @@ def sweep_staging(active):
 
 def move_one(proxy, infohash):
     proxy.d.custom.set(infohash, "move_state", "moving")
-    proxy.d.save_resume(infohash)
 
     try:
         src = proxy.d.base_path(infohash).rstrip("/")
@@ -166,7 +165,6 @@ def move_one(proxy, infohash):
     elif same_fs(src, DST):
         print(f"moving {name} [{infohash}]")
         proxy.d.custom.set(infohash, "move_dest", final)
-        proxy.d.save_resume(infohash)
         os.rename(src, final)
     else:
         print(f"moving {name} [{infohash}]")
