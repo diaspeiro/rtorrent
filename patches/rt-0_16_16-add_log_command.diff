@@ -1,0 +1,32 @@
+diff --git a/src/command_logging.cc b/src/command_logging.cc
+index 155003825..597f03b6f 100644
+--- a/src/command_logging.cc
++++ b/src/command_logging.cc
+@@ -38,6 +38,19 @@ apply_log_add_output(const torrent::Object::list_type& args) {
+   return torrent::Object();
+ }
+ 
++torrent::Object
++apply_log_message(const torrent::Object::list_type& args) {
++  if (args.size() != 2)
++    throw torrent::input_error("Invalid number of arguments.");
++
++  int group = torrent::option_find_string(torrent::OPTION_LOG_GROUP,
++                                          args.front().as_string().c_str());
++
++  torrent::log_groups[group].internal_print(NULL, NULL, NULL, 0,
++                                            "%s", args.back().as_string().c_str());
++  return torrent::Object();
++}
++
+ // TODO: Deprecated.
+ torrent::Object
+ apply_log(const torrent::Object::string_type& arg, int logType) {
+@@ -112,6 +125,7 @@ initialize_command_logging() {
+   CMD2_ANY_STRING_V("log.close",            std::bind(&torrent::log_close_output_str, std::placeholders::_2));
+ 
+   CMD2_ANY_LIST    ("log.add_output",       std::bind(&apply_log_add_output, std::placeholders::_2));
++  CMD2_ANY_LIST    ("log.log",              std::bind(&apply_log_message, std::placeholders::_2));
+ 
+   CMD2_ANY_STRING  ("log.execute",          std::bind(&apply_log, std::placeholders::_2, 0));
+   CMD2_ANY_STRING  ("log.vmmap.dump",       std::bind(&log_vmmap_dump, std::placeholders::_2));
