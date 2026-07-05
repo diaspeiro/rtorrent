@@ -1,13 +1,11 @@
 #!/opt/venv/bin/python
 import fcntl
+import io
 import os
 import shutil
 import subprocess
 import sys
 import time
-
-from relaylog import get_logger
-log = get_logger("rtmove")
 
 import pyrosimple
 
@@ -16,6 +14,29 @@ DST = "/downloads/complete"
 STAGING = DST + "/.staging"
 LOCK = "/rtorrent/data/rtmove.lock"
 RSYNC_TIMEOUT = 600
+LOG_FIFO = os.environ.get("RTMOVE_LOG_FIFO", "/tmp/log.fifo")
+_ESCAPE = {c: f"\\x{c:02x}" for c in (*range(0x20), 0x7f)}
+
+
+class FifoStdout(io.TextIOBase):
+    def __init__(self, path=FIFO):
+        self.path, self._buf = path, ""
+
+    def write(self, s):
+        *lines, self._buf = (self._buf + s).split("\n")
+        for line in lines:
+            try:
+                data = (line.translate(_ESCAPE) + "\n").encode("utf-8", "replace")
+                fd = os.open(self.path, os.O_WRONLY | os.O_NONBLOCK | os.O_CLOEXEC)
+                try:
+                    os.write(fd, data)
+                finally:
+                    os.close(fd)
+            except OSError:
+                pass
+        return len(s)
+
+sys.stdout = FifoStdout()
 
 
 class MoveError(Exception):
@@ -36,6 +57,7 @@ def same_fs(a, b):
         return os.stat(a).st_dev == os.stat(b).st_dev
     except OSError:
         return False
+
 
 def query(proxy, state):
     return proxy.d.multicall.filtered(
@@ -62,7 +84,7 @@ def finalize(proxy, infohash):
         proxy.d.custom.set(infohash, "move_dest", "")
         proxy.d.save_resume(infohash)
     except Exception as e:
-        log.info(f"finalize failed {infohash}: {e}")
+        print(f"finalize failed {infohash}: {e}")
 
 
 def park(proxy, infohash, reason=""):
@@ -70,9 +92,9 @@ def park(proxy, infohash, reason=""):
         proxy.d.custom.set(infohash, "move_state", "error")
         proxy.d.save_resume(infohash)
     except Exception as e:
-        log.info(f"park failed {infohash}: {e}")
+        print(f"park failed {infohash}: {e}")
         return
-    log.info(f"parked {infohash}: {reason}" if reason else f"parked {infohash}")
+    print(f"parked {infohash}: {reason}" if reason else f"parked {infohash}")
 
 
 def requeue(proxy, infohash, reason=""):
@@ -80,9 +102,9 @@ def requeue(proxy, infohash, reason=""):
         proxy.d.custom.set(infohash, "move_state", "queued")
         proxy.d.save_resume(infohash)
     except Exception as e:
-        log.info(f"requeue failed {infohash}: {e}")
+        print(f"requeue failed {infohash}: {e}")
         return
-    log.info(f"queued {infohash}: {reason}" if reason else f"queued {infohash}")
+    print(f"queued {infohash}: {reason}" if reason else f"queued {infohash}")
 
 
 def delete_source(path):
@@ -100,7 +122,7 @@ def sweep_staging(active):
     except FileNotFoundError:
         return
     except OSError as e:
-        log.info(f"staging sweep failed: {e}")
+        print(f"staging sweep failed: {e}")
         return
     for name in entries:
         if name in active:
@@ -120,7 +142,7 @@ def move_one(proxy, infohash):
         raise MoveError(f"base_path unavailable: {e}")
 
     if within(DST, src):
-        log.info(f"already at destination {os.path.basename(src)} [{infohash}]")
+        print(f"already at destination {os.path.basename(src)} [{infohash}]")
         finalize(proxy, infohash)
         return
     if not within(INCOMPLETE, src) or not os.path.exists(src):
@@ -140,14 +162,14 @@ def move_one(proxy, infohash):
         raise MoveError("destination exists")
 
     if resuming:
-        log.info(f"resuming {name} [{infohash}]")
+        print(f"resuming {name} [{infohash}]")
     elif same_fs(src, DST):
-        log.info(f"moving {name} [{infohash}]")
+        print(f"moving {name} [{infohash}]")
         proxy.d.custom.set(infohash, "move_dest", final)
         proxy.d.save_resume(infohash)
         os.rename(src, final)
     else:
-        log.info(f"moving {name} [{infohash}]")
+        print(f"moving {name} [{infohash}]")
         try:
             os.makedirs(stage_dir, exist_ok=True)
             rsync = ["rsync", "-a", f"--timeout={RSYNC_TIMEOUT}", "--", src, stage_dir + "/"]
@@ -172,8 +194,8 @@ def move_one(proxy, infohash):
     try:
         delete_source(src)
     except Exception as e:
-        log.info(f"source cleanup failed {infohash}: {e}")
-    log.info(f"moved {name} [{infohash}]")
+        print(f"source cleanup failed {infohash}: {e}")
+    print(f"moved {name} [{infohash}]")
     finalize(proxy, infohash)
 
 
@@ -190,7 +212,7 @@ def main():
         lock = open(LOCK, "w")
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError as e:
-        log.info(f"cannot acquire lock {LOCK}: {e}")
+        print(f"cannot acquire lock {LOCK}: {e}")
         return
 
     proxy = pyrosimple.connect().open()
@@ -200,7 +222,7 @@ def main():
             requeue(proxy, infohash, "recovered")
         sweep(proxy)
     except Exception as e:
-        log.info(f"recovery/sweep failed: {e}")
+        print(f"recovery/sweep failed: {e}")
 
     # Drain the queue while holding the lock; items that arrive mid-run are
     # picked up by the re-query. `seen` bounds the loop and stops reprocessing.
@@ -210,7 +232,7 @@ def main():
         try:
             rows = query(proxy, "queued")
         except Exception as e:
-            log.info(f"queue query failed: {e}")
+            print(f"queue query failed: {e}")
             break
         if first:
             sweep_staging({row[0] for row in rows})

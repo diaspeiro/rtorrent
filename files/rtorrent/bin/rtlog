@@ -1,7 +1,0 @@
-#!/opt/venv/bin/python
-import sys
-from relaylog import get_logger
-
-msg = " ".join(sys.argv[1:]).strip()
-if msg:
-    get_logger("rtorrent").info(msg)
