@@ -156,7 +156,6 @@ ENDRUN
 SHELL [ "/bin/bash", "-c" ]
 
 ENV PATH="/opt/venv/bin:/opt/bin:/rtorrent/bin:$PATH" \
-    PYTHONPATH="/rtorrent/lib" \
     PYRO_RTORRENT_RC="/rtorrent/rtorrent.rc" \
     PYRO_CONF="/rtorrent/config.toml"
 VOLUME [ "/rtorrent/data", "/ipc/rtorrent", "/downloads" ]
