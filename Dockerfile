@@ -81,13 +81,13 @@ ENDRUN
 
 # Build libtorrent
 RUN --mount=type=bind,source=.github/dependency-versions.json,target=/build/dv.json \
-    --mount=type=bind,source=scripts/fetch-dep.sh,target=/usr/local/bin/fetch-dep <<ENDRUN
+    --mount=type=bind,source=scripts/fetch-dep.sh,target=/usr/local/bin/fetch-dep \
+    --mount=type=bind,source=patches,target=/patches <<ENDRUN
 set -uex
 umask 0022
 fetch-dep libtorrent
 cd libtorrent
-curl -fsSL https://github.com/rakshasa/libtorrent/commit/d40c9f072e70271fcc9b174a18f7a8d8598c3830.diff -o /tmp/lt_cloexec_fix.diff
-patch -p1 < /tmp/lt_cloexec_fix.diff
+patch -p1 < /patches/lt-0_16_16-cloexec_fix.diff
 autoreconf -fiv
 CFLAGS="${CFLAGS// -Werror=implicit-function-declaration/}" CXXFLAGS="${CXXFLAGS// -Werror=implicit-function-declaration/}" ./configure --prefix=/opt --disable-debug
 make -j$(getconf _NPROCESSORS_ONLN)
@@ -96,13 +96,13 @@ ENDRUN
 
 # Build rtorrent
 RUN --mount=type=bind,source=.github/dependency-versions.json,target=/build/dv.json \
-    --mount=type=bind,source=scripts/fetch-dep.sh,target=/usr/local/bin/fetch-dep <<ENDRUN
+    --mount=type=bind,source=scripts/fetch-dep.sh,target=/usr/local/bin/fetch-dep \
+    --mount=type=bind,source=patches,target=/patches <<ENDRUN
 set -uex
 umask 0022
 fetch-dep rtorrent
 cd rtorrent
-curl -fsSL https://patch-diff.githubusercontent.com/raw/rakshasa/rtorrent/pull/1849.diff -o /tmp/rt_exec_order_fix.diff
-patch -p1 < /tmp/rt_exec_order_fix.diff
+patch -p1 < /patches/rt-0_16_16-background_fix.diff
 autoreconf -fiv
 CFLAGS="${CFLAGS// -Werror=implicit-function-declaration/}" CXXFLAGS="${CXXFLAGS// -Werror=implicit-function-declaration/}" ./configure --prefix=/opt --disable-debug --with-xmlrpc-tinyxml2 --without-ncurses
 make -j$(getconf _NPROCESSORS_ONLN)
