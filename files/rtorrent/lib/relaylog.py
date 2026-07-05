@@ -1,6 +1,6 @@
 import logging, os
 
-FIFO = os.environ.get("RTMOVE_LOG_FIFO", "/run/rtmove.pipe")
+FIFO = os.environ.get("RTMOVE_LOG_FIFO", "/tmp/log.fifo")
 
 _ESCAPE = {c: f"\\x{c:02x}" for c in (*range(0x20), 0x7f)}
 def _sanitize(s):
