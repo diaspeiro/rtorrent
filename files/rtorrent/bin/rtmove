@@ -19,7 +19,7 @@ _ESCAPE = {c: f"\\x{c:02x}" for c in (*range(0x20), 0x7f)}
 
 
 class FifoStdout(io.TextIOBase):
-    def __init__(self, path=FIFO):
+    def __init__(self, path=LOG_FIFO):
         self.path, self._buf = path, ""
 
     def write(self, s):
