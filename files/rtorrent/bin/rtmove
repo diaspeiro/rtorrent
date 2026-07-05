@@ -36,7 +36,6 @@ def same_fs(a, b):
         return os.stat(a).st_dev == os.stat(b).st_dev
     except OSError:
         return False
-           1
 
 def query(proxy, state):
     return proxy.d.multicall.filtered(
