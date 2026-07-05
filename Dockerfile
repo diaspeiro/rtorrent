@@ -102,7 +102,6 @@ set -uex
 umask 0022
 fetch-dep rtorrent
 cd rtorrent
-patch -p1 < /patches/rt-0_16_16-background_fix.diff
 patch -p1 < /patches/rt-0_16_16-add_log_command.diff
 autoreconf -fiv
 CFLAGS="${CFLAGS// -Werror=implicit-function-declaration/}" CXXFLAGS="${CXXFLAGS// -Werror=implicit-function-declaration/}" ./configure --prefix=/opt --disable-debug --with-xmlrpc-tinyxml2 --without-ncurses
