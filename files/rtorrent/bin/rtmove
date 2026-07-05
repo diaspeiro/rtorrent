@@ -200,8 +200,6 @@ def move_one(proxy, infohash):
 
 
 def main():
-    sys.stdout.reconfigure(write_through=True)
-
     if sys.argv[1:2] == ["--unpark"]:
         proxy = pyrosimple.connect().open()
         for infohash in sys.argv[2:]:
@@ -224,8 +222,6 @@ def main():
     except Exception as e:
         print(f"recovery/sweep failed: {e}")
 
-    # Drain the queue while holding the lock; items that arrive mid-run are
-    # picked up by the re-query. `seen` bounds the loop and stops reprocessing.
     seen = set()
     first = True
     while True:
