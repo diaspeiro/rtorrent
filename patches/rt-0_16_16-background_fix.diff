@@ -1,6 +1,6 @@
 diff -Bur a/src/main.cc b/src/main.cc
 --- a/src/main.cc	2026-07-03 14:40:11.000000000 +0000
-+++ b/src/main.cc	2026-07-05 23:15:14.927943320 +0000
++++ b/src/main.cc	2026-07-06 00:24:26.686886113 +0000
 @@ -164,6 +164,7 @@
      scgi::ThreadScgi::create_thread();
      session::ThreadSession::create_thread();
@@ -19,8 +19,8 @@ diff -Bur a/src/main.cc b/src/main.cc
      control->cleanup();
  
 diff -Bur a/src/rpc/exec_file.cc b/src/rpc/exec_file.cc
---- a/src/rpc/exec_file.cc	2026-07-03 14:40:11.000000000 +0000
-+++ b/src/rpc/exec_file.cc	2026-07-05 23:26:57.629236097 +0000
+--- a/src/rpc/exec_file.cc	2026-07-06 00:24:09.370281060 +0000
++++ b/src/rpc/exec_file.cc	2026-07-06 00:24:26.687369374 +0000
 @@ -1,6 +1,8 @@
  #include "config.h"
  
@@ -30,16 +30,7 @@ diff -Bur a/src/rpc/exec_file.cc b/src/rpc/exec_file.cc
  #include <cstring>
  #include <fcntl.h>
  #include <spawn.h>
-@@ -8,6 +10,8 @@
- #include <unistd.h>
- #include <sys/types.h>
- #include <sys/wait.h>
-+#include <torrent/net/fd.h>
-+#include <torrent/system/system.h>
- #include <torrent/system/thread.h>
-
- #include "exec_file.h"
-@@ -20,6 +24,15 @@
+@@ -22,6 +24,15 @@
  
  // TODO: Access fd through torrent logging?
  
@@ -55,61 +46,29 @@ diff -Bur a/src/rpc/exec_file.cc b/src/rpc/exec_file.cc
  int
  ExecFile::execute(const char* file, char* const* argv, int flags) {
    // Write the executed command and its parameters to the log fd.
-@@ -46,19 +59,11 @@
-   posix_spawnattr_t attr;
-   posix_spawnattr_init(&attr);
+@@ -65,6 +76,9 @@
  
--  short spawn_flags = 0;
--
-   // Try to avoid leaking open fds to the spawned process. Prefer POSIX_SPAWN_CLOEXEC_DEFAULT
-   // (macOS-only) or posix_spawn_file_actions_addclosefrom_np (glibc >= 2.34, FreeBSD >= 13.1).
-   //
-   // Other platforms like musl libc, OpenBSD and NetBSD must rely on explicit O_CLOEXEC.
-
--#if defined(POSIX_SPAWN_CLOEXEC_DEFAULT)
--  spawn_flags |= POSIX_SPAWN_CLOEXEC_DEFAULT;
--#elif defined(HAVE_POSIX_SPAWN_FILE_ACTIONS_ADDCLOSEFROM_NP)
--  posix_spawn_file_actions_addclosefrom_np(&actions, 3);
--#endif
--
-   // Handle standard input redirection (/dev/null), posix_spawn_file_actions_addopen handles opening
-   // and dup2 natively
-   if (posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDWR, 0) != 0) {
-@@ -66,32 +71,45 @@
-     posix_spawn_file_actions_addclose(&actions, 0);
-   }
-
--  int pipe_fd[2] = {-1, -1};
--
--  if ((flags & flag_capture) && pipe(pipe_fd))
--    throw torrent::input_error("ExecFile::execute(...) Pipe creation failed.");
-+  int pipe_0 = -1;
-+  int pipe_1 = -1;
-
    // Handle standard output redirection
    if (flags & flag_capture) {
--    posix_spawn_file_actions_adddup2(&actions, pipe_fd[1], 1);
 +    if (flags & flag_background)
 +      throw torrent::internal_error("ExecFile::execute(...) cannot capture a background task.");
 +
-+    torrent::fd_open_pipe(pipe_0, pipe_1);
-
--    // Ensure the write end of the pipe is closed in the child after duplicating.
--    posix_spawn_file_actions_addclose(&actions, pipe_fd[1]);
--    posix_spawn_file_actions_addclose(&actions, pipe_fd[0]);
+     torrent::fd_open_pipe(pipe_0, pipe_1);
+ 
+     posix_spawn_file_actions_adddup2(&actions, pipe_1, 1);
+@@ -72,18 +86,20 @@
+     // Ensure the write end of the pipe is closed in the child after duplicating.
+     posix_spawn_file_actions_addclose(&actions, pipe_0);
+     posix_spawn_file_actions_addclose(&actions, pipe_1);
 -
 -  } else if (m_log_fd != -1) {
 -    posix_spawn_file_actions_adddup2(&actions, m_log_fd, 1);
-+    posix_spawn_file_actions_adddup2(&actions, pipe_1, 1);
-
+-
 -  } else {
-+    // Ensure the write end of the pipe is closed in the child after duplicating.
-+    posix_spawn_file_actions_addclose(&actions, pipe_0);
-+    posix_spawn_file_actions_addclose(&actions, pipe_1);
 +  } else if (m_log_fd == -1) {
-     posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_RDWR, 0);
-+  } else if (flags & flag_background) {
 +    posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_RDWR, 0);
++  } else if (flags & flag_background) {
+     posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_RDWR, 0);
 +  } else {
 +    posix_spawn_file_actions_adddup2(&actions, m_log_fd, 1);
    }
@@ -125,18 +84,8 @@ diff -Bur a/src/rpc/exec_file.cc b/src/rpc/exec_file.cc
 +    posix_spawn_file_actions_adddup2(&actions, m_log_fd, 2);
    }
  
-+  short spawn_flags = 0;
-+
-+#if defined(POSIX_SPAWN_CLOEXEC_DEFAULT)
-+  spawn_flags |= POSIX_SPAWN_CLOEXEC_DEFAULT;
-+#elif defined(HAVE_POSIX_SPAWN_FILE_ACTIONS_ADDCLOSEFROM_NP)
-+  posix_spawn_file_actions_addclosefrom_np(&actions, 3);
-+#endif
-+
-   if (flags & flag_background) {
- #ifdef POSIX_SPAWN_SETSID
-     spawn_flags |= POSIX_SPAWN_SETSID;
-@@ -103,6 +121,17 @@
+   short spawn_flags = 0;
+@@ -105,6 +121,17 @@
  
    posix_spawnattr_setflags(&attr, spawn_flags);
  
@@ -154,57 +103,24 @@ diff -Bur a/src/rpc/exec_file.cc b/src/rpc/exec_file.cc
    pid_t child_pid{};
    int   spawn_status = posix_spawnp(&child_pid, file, &actions, &attr, argv, environ);
  
-@@ -110,31 +139,34 @@
+@@ -112,6 +139,9 @@
    posix_spawnattr_destroy(&attr);
  
    if (spawn_status != 0) {
--    if (pipe_fd[0] != -1)
--      ::close(pipe_fd[0]);
 +    if (!(flags & flag_background))
 +      pthread_sigmask(SIG_SETMASK, &old_mask, nullptr);
 +
-+    if (pipe_0 != -1)
-+      torrent::fd_close(pipe_0);
-
--    if (pipe_fd[1] != -1)
--      ::close(pipe_fd[1]);
-+    if (pipe_1 != -1)
-+      torrent::fd_close(pipe_1);
-
--    throw torrent::input_error("ExecFile::execute(...) posix_spawn failed: " + std::string(std::strerror(spawn_status)));
-+    throw torrent::input_error("ExecFile::execute() posix_spawn failed: " + torrent::system::errno_enum_str(spawn_status));
-   }
+     if (pipe_0 != -1)
+       torrent::fd_close(pipe_0);
  
-   if (flags & flag_capture) {
-     m_capture = std::string();
--    ::close(pipe_fd[1]);
-+    torrent::fd_close(pipe_1);
-
-     char buffer[4096];
-     ssize_t length;
-
-     do {
--      length = read(pipe_fd[0], buffer, sizeof(buffer));
-+      length = read(pipe_0, buffer, sizeof(buffer));
-
-       if (length > 0)
-         m_capture += std::string(buffer, length);
-
-     } while (length > 0);
-
--    ::close(pipe_fd[0]);
-+    torrent::fd_close(pipe_0);
-
-     if (m_log_fd != -1) {
-       result = write(m_log_fd, "Captured output:\n", sizeof("Captured output:\n"));
-@@ -149,12 +181,20 @@
+@@ -151,12 +181,20 @@
      return 0;
    }
-
+ 
 -  int status;
 +  int status, wait_errno = 0;
-+
-+  while (::waitpid(child_pid, &status, 0) == -1) {
+ 
+   while (::waitpid(child_pid, &status, 0) == -1) {
 +    if (errno == EINTR) {
 +      wait_errno = errno;
 +      break;
@@ -212,8 +128,7 @@ diff -Bur a/src/rpc/exec_file.cc b/src/rpc/exec_file.cc
 +
 +    if (!(flags & flag_background))
 +      pthread_sigmask(SIG_SETMASK, &old_mask, nullptr);
-
--  while (waitpid(child_pid, &status, 0) == -1) {
++
      switch (errno) {
 -    case EINTR:
 -      continue;
@@ -224,7 +139,7 @@ diff -Bur a/src/rpc/exec_file.cc b/src/rpc/exec_file.cc
      case EINVAL:
 diff -Bur a/src/rpc/exec_file.h b/src/rpc/exec_file.h
 --- a/src/rpc/exec_file.h	2026-07-03 14:40:11.000000000 +0000
-+++ b/src/rpc/exec_file.h	2026-07-05 23:15:14.929440026 +0000
++++ b/src/rpc/exec_file.h	2026-07-06 00:24:26.687536276 +0000
 @@ -21,6 +21,8 @@
    int                 execute(const char* file, char* const* argv, int flags);
    torrent::Object     execute_object(const torrent::Object& rawArgs, int flags);
