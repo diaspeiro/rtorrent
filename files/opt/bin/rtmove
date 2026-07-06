@@ -15,18 +15,21 @@ STAGING = DST + "/.staging"
 LOCK = "/rtorrent/data/rtmove.lock"
 RSYNC_TIMEOUT = 600
 LOG_FIFO = os.environ.get("RTMOVE_LOG_FIFO", "/tmp/log.fifo")
+POSTPROCESS = os.environ.get("RTMOVE_POSTPROCESS", "/rtorrent/bin/rtpostprocess")
+POSTPROCESS_TIMEOUT = int(os.environ.get("RTMOVE_POSTPROCESS_TIMEOUT", "300"))
 _ESCAPE = {c: f"\\x{c:02x}" for c in (*range(0x20), 0x7f)}
 
 
 class FifoStdout(io.TextIOBase):
     def __init__(self, path=LOG_FIFO):
-        self.path, self._buf = path, ""
+        self.path, self._buf, self.subsystem = path, "", "rtmove"
 
     def write(self, s):
         *lines, self._buf = (self._buf + s).split("\n")
         for line in lines:
             try:
-                data = (line.translate(_ESCAPE) + "\n").encode("utf-8", "replace")
+                prefix = f"{int(time.time())} I {self.subsystem}: "
+                data = (prefix + line.translate(_ESCAPE) + "\n").encode("utf-8", "replace")
                 fd = os.open(self.path, os.O_WRONLY | os.O_NONBLOCK | os.O_CLOEXEC)
                 try:
                     os.write(fd, data)
@@ -37,6 +40,14 @@ class FifoStdout(io.TextIOBase):
         return len(s)
 
 sys.stdout = FifoStdout()
+
+
+def log(message, subsystem="rtmove"):
+    prev, sys.stdout.subsystem = sys.stdout.subsystem, subsystem
+    try:
+        print(message)
+    finally:
+        sys.stdout.subsystem = prev
 
 
 class MoveError(Exception):
@@ -132,6 +143,33 @@ def sweep_staging(active):
             shutil.rmtree(path, ignore_errors=True)
 
 
+def post_process(infohash, final):
+    if not POSTPROCESS or not os.path.exists(POSTPROCESS):
+        return
+    if not os.access(POSTPROCESS, os.X_OK):
+        log(f"not executable: {POSTPROCESS}", "postprocess")
+        return
+    try:
+        result = subprocess.run(
+            [POSTPROCESS, infohash, final],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=POSTPROCESS_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        log(f"timed out after {POSTPROCESS_TIMEOUT}s {infohash}", "postprocess")
+        return
+    except Exception as e:
+        log(f"failed {infohash}: {e}", "postprocess")
+        return
+    for line in result.stdout.splitlines():
+        log(f"{infohash}: {line}", "postprocess")
+    if result.returncode != 0:
+        log(f"exited {result.returncode} {infohash}", "postprocess")
+
+
 def move_one(proxy, infohash):
     proxy.d.custom.set(infohash, "move_state", "moving")
 
@@ -194,6 +232,7 @@ def move_one(proxy, infohash):
     except Exception as e:
         print(f"source cleanup failed {infohash}: {e}")
     print(f"moved {name} [{infohash}]")
+    post_process(infohash, final)
     finalize(proxy, infohash)
 
 

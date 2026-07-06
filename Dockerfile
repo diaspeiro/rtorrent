@@ -150,7 +150,7 @@ python3 -m venv /opt/venv
 /opt/venv/bin/pip install --no-index --find-links=/mnt/wheels pyrosimple cinemagoer guessit
 cp -a /mnt/files/. /
 find /docker-entrypoint.d -type f -regex '.*\.\(sh\|envsh\)$' -print0 | xargs -r0 chmod +x
-chmod +x /docker-entrypoint.sh /rtorrent/bin/*
+chmod +x /docker-entrypoint.sh /docker-entrypoint.d/*.sh /opt/bin/rtmove
 find / -xdev -exec touch -hd "@${SOURCE_DATE_EPOCH}" {} + || true
 ENDRUN
 

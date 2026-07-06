@@ -85,8 +85,8 @@ directory.watch.added = (cat, (cfg.watch), "load/"), watch.load.verbose
 
 method.set_key = event.download.finished, move_on_complete,\
     "d.custom.set = move_state, queued ;\
-     execute.nothrow.bg = /rtorrent/bin/rtmove"
-schedule = move_sweep, 120, 300, "execute.nothrow.bg = /rtorrent/bin/rtmove"
+     execute.nothrow.bg = /opt/bin/rtmove"
+schedule = move_sweep, 120, 300, "execute.nothrow.bg = /opt/bin/rtmove"
 
 try_import=/rtorrent/library.rc
 try_import=/rtorrent/config.rc
