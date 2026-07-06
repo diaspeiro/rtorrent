@@ -21,7 +21,7 @@ jobs:
           jq -r 'to_entries[] | select(.value.locked == true)
                  | "::warning title=Locked dependency::\(.key) is locked at \(.value.version) and is not auto-updated"' \
             .github/dependency-versions.json
-      - uses: diaspeiro/actions/container-build-push@bffb6d903090e1aded32eed189e567b3ea7b970f
+      - uses: diaspeiro/actions/container-build-push@7be61b1cf3d462fc7d56de1704b3f48eb0b16b67
         with:
           username: ${{ vars.DOCKERHUB_USER }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
