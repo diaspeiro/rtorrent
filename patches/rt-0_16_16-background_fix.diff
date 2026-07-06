@@ -1,6 +1,5 @@
-diff -Bur a/src/main.cc b/src/main.cc
---- a/src/main.cc	2026-07-03 14:40:11.000000000 +0000
-+++ b/src/main.cc	2026-07-06 00:24:26.686886113 +0000
+--- a/src/main.cc	2026-07-06 05:36:20.751680387 +0000
++++ b/src/main.cc	2026-07-06 05:36:20.762574354 +0000
 @@ -164,6 +164,7 @@
      scgi::ThreadScgi::create_thread();
      session::ThreadSession::create_thread();
@@ -18,25 +17,22 @@ diff -Bur a/src/main.cc b/src/main.cc
      control->core()->download_list()->session_save();
      control->cleanup();
  
-diff -Bur a/src/rpc/exec_file.cc b/src/rpc/exec_file.cc
---- a/src/rpc/exec_file.cc	2026-07-06 00:24:09.370281060 +0000
-+++ b/src/rpc/exec_file.cc	2026-07-06 00:24:26.687369374 +0000
-@@ -1,6 +1,8 @@
+--- a/src/rpc/exec_file.cc	2026-07-06 05:36:20.760237423 +0000
++++ b/src/rpc/exec_file.cc	2026-07-06 05:36:20.764685130 +0000
+@@ -1,5 +1,6 @@
  #include "config.h"
  
 +#include <cassert>
  #include <cerrno>
-+#include <csignal>
  #include <cstring>
  #include <fcntl.h>
- #include <spawn.h>
-@@ -22,6 +24,15 @@
+@@ -22,6 +23,15 @@
  
  // TODO: Access fd through torrent logging?
  
 +void
 +ExecFile::reap_background() {
-+  while (true) {
++  while (m_foreground_active.load() == 0) {
 +    pid_t pid = waitpid(-1, nullptr, WNOHANG);
 +    if (pid == 0 || (pid == -1 && errno != EINTR))
 +      break;
@@ -46,7 +42,7 @@ diff -Bur a/src/rpc/exec_file.cc b/src/rpc/exec_file.cc
  int
  ExecFile::execute(const char* file, char* const* argv, int flags) {
    // Write the executed command and its parameters to the log fd.
-@@ -65,6 +76,9 @@
+@@ -65,6 +75,9 @@
  
    // Handle standard output redirection
    if (flags & flag_capture) {
@@ -56,7 +52,7 @@ diff -Bur a/src/rpc/exec_file.cc b/src/rpc/exec_file.cc
      torrent::fd_open_pipe(pipe_0, pipe_1);
  
      posix_spawn_file_actions_adddup2(&actions, pipe_1, 1);
-@@ -72,18 +86,20 @@
+@@ -72,18 +85,20 @@
      // Ensure the write end of the pipe is closed in the child after duplicating.
      posix_spawn_file_actions_addclose(&actions, pipe_0);
      posix_spawn_file_actions_addclose(&actions, pipe_1);
@@ -66,9 +62,9 @@ diff -Bur a/src/rpc/exec_file.cc b/src/rpc/exec_file.cc
 -
 -  } else {
 +  } else if (m_log_fd == -1) {
-+    posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_RDWR, 0);
-+  } else if (flags & flag_background) {
      posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_RDWR, 0);
++  } else if (flags & flag_background) {
++    posix_spawn_file_actions_addopen(&actions, 1, "/dev/null", O_RDWR, 0);
 +  } else {
 +    posix_spawn_file_actions_adddup2(&actions, m_log_fd, 1);
    }
@@ -77,75 +73,85 @@ diff -Bur a/src/rpc/exec_file.cc b/src/rpc/exec_file.cc
 -    posix_spawn_file_actions_adddup2(&actions, m_log_fd, 2);
 -  } else {
 +  if (m_log_fd == -1) {
-+    posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_RDWR, 0);
-+  } else if (flags & flag_background) {
      posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_RDWR, 0);
++  } else if (flags & flag_background) {
++    posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_RDWR, 0);
 +  } else {
 +    posix_spawn_file_actions_adddup2(&actions, m_log_fd, 2);
    }
  
    short spawn_flags = 0;
-@@ -105,6 +121,17 @@
+@@ -105,6 +120,12 @@
  
    posix_spawnattr_setflags(&attr, spawn_flags);
  
-+  sigset_t old_mask;
-+
 +  if (!(flags & flag_background)) {
 +    assert(torrent::this_thread::thread() == torrent::main_thread::thread());
 +
-+    sigset_t block_mask;
-+    sigemptyset(&block_mask);
-+    sigaddset(&block_mask, SIGCHLD);
-+    pthread_sigmask(SIG_BLOCK, &block_mask, &old_mask);
++    m_foreground_active.fetch_add(1);
 +  }
 +
    pid_t child_pid{};
    int   spawn_status = posix_spawnp(&child_pid, file, &actions, &attr, argv, environ);
  
-@@ -112,6 +139,9 @@
+@@ -112,6 +133,9 @@
    posix_spawnattr_destroy(&attr);
  
    if (spawn_status != 0) {
 +    if (!(flags & flag_background))
-+      pthread_sigmask(SIG_SETMASK, &old_mask, nullptr);
++      m_foreground_active.fetch_sub(1);
 +
      if (pipe_0 != -1)
        torrent::fd_close(pipe_0);
  
-@@ -151,12 +181,20 @@
-     return 0;
-   }
- 
--  int status;
-+  int status, wait_errno = 0;
+@@ -154,9 +178,13 @@
+   int status;
  
    while (::waitpid(child_pid, &status, 0) == -1) {
-+    if (errno == EINTR) {
-+      wait_errno = errno;
-+      break;
-+    }
+-    switch (errno) {
+-    case EINTR:
++    if (errno == EINTR)
+       continue;
 +
 +    if (!(flags & flag_background))
-+      pthread_sigmask(SIG_SETMASK, &old_mask, nullptr);
++      m_foreground_active.fetch_sub(1);
 +
-     switch (errno) {
--    case EINTR:
--      continue;
-+    case 0:
-+      break;
++    switch (errno) {
      case ECHILD:
        throw torrent::internal_error("ExecFile::execute(...) waitpid failed with ECHILD, child process not found.");
      case EINVAL:
-diff -Bur a/src/rpc/exec_file.h b/src/rpc/exec_file.h
---- a/src/rpc/exec_file.h	2026-07-03 14:40:11.000000000 +0000
-+++ b/src/rpc/exec_file.h	2026-07-06 00:24:26.687536276 +0000
-@@ -21,6 +21,8 @@
+@@ -166,6 +194,11 @@
+     }
+   };
+
++  if (!(flags & flag_background)) {
++    m_foreground_active.fetch_sub(1);
++    reap_background();
++  }
++
+   // Check return value?
+   if (m_log_fd != -1) {
+     if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
+--- a/src/rpc/exec_file.h	2026-07-06 05:36:20.756680417 +0000
++++ b/src/rpc/exec_file.h	2026-07-06 05:36:20.766527639 +0000
+@@ -1,6 +1,7 @@
+ #ifndef RTORRENT_RPC_EXEC_FILE_H
+ #define RTORRENT_RPC_EXEC_FILE_H
+
++#include <atomic>
+ #include <torrent/object.h>
+
+ namespace rpc {
+@@ -21,9 +22,12 @@
    int                 execute(const char* file, char* const* argv, int flags);
    torrent::Object     execute_object(const torrent::Object& rawArgs, int flags);
- 
+
 +  void                reap_background();
 +
  private:
    int                 m_log_fd{-1};
    std::string         m_capture;
++  std::atomic<int>    m_foreground_active{0};
+ };
+
+ }
