@@ -1,6 +1,8 @@
---- a/src/main.cc	2026-07-06 05:36:20.751680387 +0000
-+++ b/src/main.cc	2026-07-06 05:36:20.762574354 +0000
-@@ -164,6 +164,7 @@
+diff --git a/src/main.cc b/src/main.cc
+index 8c0aab1..1eca1c4 100644
+--- a/src/main.cc
++++ b/src/main.cc
+@@ -164,6 +164,7 @@ main(int argc, char** argv) {
      scgi::ThreadScgi::create_thread();
      session::ThreadSession::create_thread();
  
@@ -8,7 +10,7 @@
      SignalHandler::set_unblock(SIGCHLD);
  
      // Initialize option handlers after libtorrent to ensure
-@@ -465,6 +466,8 @@
+@@ -465,6 +466,8 @@ main(int argc, char** argv) {
  
      torrent::system::Thread::self()->event_loop();
  
@@ -17,8 +19,10 @@
      control->core()->download_list()->session_save();
      control->cleanup();
  
---- a/src/rpc/exec_file.cc	2026-07-06 05:36:20.760237423 +0000
-+++ b/src/rpc/exec_file.cc	2026-07-06 05:36:20.764685130 +0000
+diff --git a/src/rpc/exec_file.cc b/src/rpc/exec_file.cc
+index d373388..fd06390 100644
+--- a/src/rpc/exec_file.cc
++++ b/src/rpc/exec_file.cc
 @@ -1,5 +1,6 @@
  #include "config.h"
  
@@ -26,23 +30,27 @@
  #include <cerrno>
  #include <cstring>
  #include <fcntl.h>
-@@ -22,6 +23,15 @@
+@@ -22,6 +23,19 @@ namespace rpc {
  
  // TODO: Access fd through torrent logging?
  
 +void
 +ExecFile::reap_background() {
++  int saved_errno = errno;
++
 +  while (m_foreground_active.load() == 0) {
 +    pid_t pid = waitpid(-1, nullptr, WNOHANG);
 +    if (pid == 0 || (pid == -1 && errno != EINTR))
 +      break;
 +  }
++
++  errno = saved_errno;
 +}
 +
  int
  ExecFile::execute(const char* file, char* const* argv, int flags) {
    // Write the executed command and its parameters to the log fd.
-@@ -65,6 +75,9 @@
+@@ -65,6 +79,9 @@ ExecFile::execute(const char* file, char* const* argv, int flags) {
  
    // Handle standard output redirection
    if (flags & flag_capture) {
@@ -52,7 +60,7 @@
      torrent::fd_open_pipe(pipe_0, pipe_1);
  
      posix_spawn_file_actions_adddup2(&actions, pipe_1, 1);
-@@ -72,18 +85,20 @@
+@@ -72,18 +89,20 @@ ExecFile::execute(const char* file, char* const* argv, int flags) {
      // Ensure the write end of the pipe is closed in the child after duplicating.
      posix_spawn_file_actions_addclose(&actions, pipe_0);
      posix_spawn_file_actions_addclose(&actions, pipe_1);
@@ -73,15 +81,15 @@
 -    posix_spawn_file_actions_adddup2(&actions, m_log_fd, 2);
 -  } else {
 +  if (m_log_fd == -1) {
-     posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_RDWR, 0);
-+  } else if (flags & flag_background) {
 +    posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_RDWR, 0);
++  } else if (flags & flag_background) {
+     posix_spawn_file_actions_addopen(&actions, 2, "/dev/null", O_RDWR, 0);
 +  } else {
 +    posix_spawn_file_actions_adddup2(&actions, m_log_fd, 2);
    }
  
    short spawn_flags = 0;
-@@ -105,6 +120,12 @@
+@@ -105,6 +124,12 @@ ExecFile::execute(const char* file, char* const* argv, int flags) {
  
    posix_spawnattr_setflags(&attr, spawn_flags);
  
@@ -94,9 +102,9 @@
    pid_t child_pid{};
    int   spawn_status = posix_spawnp(&child_pid, file, &actions, &attr, argv, environ);
  
-@@ -112,6 +133,9 @@
+@@ -112,6 +137,9 @@ ExecFile::execute(const char* file, char* const* argv, int flags) {
    posix_spawnattr_destroy(&attr);
- 
+
    if (spawn_status != 0) {
 +    if (!(flags & flag_background))
 +      m_foreground_active.fetch_sub(1);
@@ -104,7 +112,7 @@
      if (pipe_0 != -1)
        torrent::fd_close(pipe_0);
  
-@@ -154,9 +178,13 @@
+@@ -154,9 +182,13 @@ ExecFile::execute(const char* file, char* const* argv, int flags) {
    int status;
  
    while (::waitpid(child_pid, &status, 0) == -1) {
@@ -120,7 +128,7 @@
      case ECHILD:
        throw torrent::internal_error("ExecFile::execute(...) waitpid failed with ECHILD, child process not found.");
      case EINVAL:
-@@ -166,6 +194,11 @@
+@@ -166,6 +198,11 @@ ExecFile::execute(const char* file, char* const* argv, int flags) {
      }
    };
 
@@ -132,8 +140,10 @@
    // Check return value?
    if (m_log_fd != -1) {
      if (WIFEXITED(status) && WEXITSTATUS(status) == 0)
---- a/src/rpc/exec_file.h	2026-07-06 05:36:20.756680417 +0000
-+++ b/src/rpc/exec_file.h	2026-07-06 05:36:20.766527639 +0000
+diff --git a/src/rpc/exec_file.h b/src/rpc/exec_file.h
+index dc0aa16..6d54fb9 100644
+--- a/src/rpc/exec_file.h
++++ b/src/rpc/exec_file.h
 @@ -1,6 +1,7 @@
  #ifndef RTORRENT_RPC_EXEC_FILE_H
  #define RTORRENT_RPC_EXEC_FILE_H
@@ -142,7 +152,7 @@
  #include <torrent/object.h>
 
  namespace rpc {
-@@ -21,9 +22,12 @@
+@@ -21,9 +22,12 @@ public:
    int                 execute(const char* file, char* const* argv, int flags);
    torrent::Object     execute_object(const torrent::Object& rawArgs, int flags);
 
