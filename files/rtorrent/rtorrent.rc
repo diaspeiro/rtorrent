@@ -80,8 +80,8 @@ method.insert = watch.load.start_verbose, simple|private, \
 method.insert = watch.load.verbose, simple|private, \
     "branch=(!file.match=(argument.0), *.torrent), , load.verbose=(argument.0) ; d.delete_tied="
 
-directory.watch.added = (cat, (cfg.watch), "start/"), watch.load.start_verbose
-directory.watch.added = (cat, (cfg.watch), "load/"), watch.load.verbose
+directory.watch.ready = (cat, (cfg.watch), "start/"), watch.load.start_verbose
+directory.watch.ready = (cat, (cfg.watch), "load/"), watch.load.verbose
 
 method.set_key = event.download.finished, move_on_complete,\
     "d.custom.set = move_state, queued ;\
