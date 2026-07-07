@@ -87,7 +87,6 @@ set -uex
 umask 0022
 fetch-dep libtorrent
 cd libtorrent
-patch -p1 -i /patches/lt-0_16_16-cloexec_fix.diff
 autoreconf -fiv
 CFLAGS="${CFLAGS// -Werror=implicit-function-declaration/}" CXXFLAGS="${CXXFLAGS// -Werror=implicit-function-declaration/}" ./configure --prefix=/opt --disable-debug
 make -j$(getconf _NPROCESSORS_ONLN)
@@ -103,7 +102,6 @@ umask 0022
 fetch-dep rtorrent
 cd rtorrent
 patch -p1 -i /patches/rt-0_16_16-add_log_command.diff
-patch -p1 -i /patches/rt-0_16_16-exec_order.diff
 patch -p1 -i /patches/rt-0_16_16-background_fix.diff
 autoreconf -fiv
 CFLAGS="${CFLAGS// -Werror=implicit-function-declaration/}" CXXFLAGS="${CXXFLAGS// -Werror=implicit-function-declaration/}" ./configure --prefix=/opt --disable-debug --with-xmlrpc-tinyxml2 --without-ncurses
