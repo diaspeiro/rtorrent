@@ -1,13 +1,13 @@
 {
   "rtorrent": {
-    "version": "0.16.16",
-    "url": "https://github.com/rakshasa/rtorrent/releases/download/v0.16.16/rtorrent-0.16.16.tar.gz",
-    "sha256": "484a128247b81bae6260062113db7afb5ac088b9480cc1690e703c0ce8836847"
+    "version": "0.16.17",
+    "url": "https://github.com/rakshasa/rtorrent/releases/download/v0.16.17/rtorrent-0.16.17.tar.gz",
+    "sha256": "115cdb6bf70f5c0f43687ca57c974bc45a7ff970562a56b51b971b9bf51ef0a1"
   },
   "libtorrent": {
-    "version": "0.16.16",
-    "url": "https://github.com/rakshasa/rtorrent/releases/download/v0.16.16/libtorrent-0.16.16.tar.gz",
-    "sha256": "68e547852484a41249392c1830fba97afde45909d51b76fc80564061ef69f63d"
+    "version": "0.16.17",
+    "url": "https://github.com/rakshasa/rtorrent/releases/download/v0.16.17/libtorrent-0.16.17.tar.gz",
+    "sha256": "9efd7f3176a03f7935b5616ff57695524e99a3184e43ec01110d13d960d2abf6"
   },
   "curl": {
     "version": "8.21.0",
@@ -15,9 +15,9 @@
     "sha256": "d9b327997999045a24cda50f3983e69e51c516bd8be6ef9842fc7f99135e33bb"
   },
   "cares": {
-    "version": "1.34.6",
-    "url": "https://github.com/c-ares/c-ares/releases/download/v1.34.6/c-ares-1.34.6.tar.gz",
-    "sha256": "912dd7cc3b3e8a79c52fd7fb9c0f4ecf0aaa73e45efda880266a2d6e26b84ef5"
+    "version": "1.34.7",
+    "url": "https://github.com/c-ares/c-ares/releases/download/v1.34.7/c-ares-1.34.7.tar.gz",
+    "sha256": "556f781dd188ad932dc8263fee0ad3aaba675b4cd8e54d86908681b43ce3e327"
   },
   "nghttp2": {
     "version": "1.69.0",
