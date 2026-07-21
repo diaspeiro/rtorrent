@@ -1,63 +1,57 @@
 # -*- mode: conf -*-
 system.daemon.set = true
 network.block.ipv6.set = true
-network.bind_address.ipv4.set = (system.env,RTORRENT_IP)
-network.port_range.set = (cat,(system.env,RTORRENT_PORT),"-",(system.env,RTORRENT_PORT))
+network.bind_address.ipv4.set = (system.env, RTORRENT_IP)
+network.listen.port.set = (system.env, RTORRENT_PORT)
 
 # Instance layout (base paths)
 method.insert = cfg.basedir, private|const|string, "/rtorrent/"
-method.insert = cfg.download_incomplete, private|const|string, "/downloads/incomplete"
-method.insert = cfg.download_complete, private|const|string, "/downloads/complete"
+method.insert = cfg.download_incomplete, private|const|string, "/downloads/incomplete/"
+method.insert = cfg.download_complete, private|const|string, "/downloads/complete/"
 method.insert = cfg.logfile, private|const|string, "/dev/stdout"
 method.insert = cfg.pidfile, private|const|string, "/tmp/rtorrent.pid"
-method.insert = cfg.session, private|const|string, (cat,(cfg.basedir),"data/session/")
-method.insert = cfg.watch, private|const|string, (cat,(cfg.basedir),"data/watch/")
+method.insert = cfg.session, private|const|string, (cat, (cfg.basedir), "data/session/")
+method.insert = cfg.watch, private|const|string, (cat, (cfg.basedir), "data/watch/")
 
-log.open_file.flush = logfile, (cat, (cfg.logfile))
+log.open_file.flush = logfile, (cfg.logfile)
 log.add_output = info, logfile
 log.print = info, "rtorrent starting, logging to ", (cfg.logfile)
 
 # Create instance directories
-execute.throw = sh, -c, (cat,\
-    "mkdir -p \"",(cfg.download_complete),"\" ",\
-    "\"",(cfg.download_incomplete),"\" ",\
-    "\"",(cfg.session),"\" ",\
-    "\"",(cfg.watch),"/load\" ",\
-    "\"",(cfg.watch),"/start\" ")
+execute.throw = mkdir, -p,\
+    (cfg.download_complete),\
+    (cfg.download_incomplete),\
+    (cfg.session),\
+    (cat, (cfg.watch), "load/"),\
+    (cat, (cfg.watch), "start/")
 
+session.path.set = (cfg.session)
+directory.default.set = (cfg.download_incomplete)
 system.cwd.set = (directory.default)
-session.path.set = (cat, (cfg.session))
-directory.default.set = (cat, (cfg.download_incomplete))
-execute.nothrow = sh, -c, (cat, "echo >", (cfg.pidfile), " ",(system.pid))
 
 # HELPERS: one-line entries (libtorrent prepends an epoch timestamp)
 #   d.log_event        -> "<verb>: <name> [<hash>]"
 #   d.log_event_sized  -> "<verb>: <name> (<size>) [<hash>]"
 #   d.log_finished     -> "finished: <name> (<size> in <elapsed>) [<hash>]"
-
 method.insert = d.log_event, simple|private,\
-    ((log.print, (enum.log_group, info), ((argument.0)), ": ",\
-        ((d.name)), " [", ((d.hash)), "]"))
-
+    "log.print = (enum.log_group, info), (argument.0), \": \", (d.name), \" [\", (d.hash), \"]\""
 method.insert = d.log_event_sized, simple|private,\
-    ((log.print, (enum.log_group, info), ((argument.0)), ": ",\
-        ((d.name)), " (", ((convert.xb, ((d.size_bytes)))), ") [", ((d.hash)), "]"))
-
+    "log.print = (enum.log_group, info), (argument.0), \": \", (d.name), \" (\",\
+        (convert.xb, (d.size_bytes)), \") [\", (d.hash), \"]\""
 method.insert = d.log_finished, simple|private,\
-    ((log.print, (enum.log_group, info), "finished: ", ((d.name)), " (", ((convert.xb, ((d.size_bytes)))),\
-        ((if, ((d.custom, "tm_started")),\
-            ((cat, " in ", ((convert.elapsed_time, ((d.custom, "tm_started")))))),\
-            "")),\
-        ") [", ((d.hash)), "]"))
+    "log.print = (enum.log_group, info), \"finished: \", (d.name), \" (\", (convert.xb, (d.size_bytes)),\
+        (branch, \"d.custom=tm_started\",\
+            \"cat=\\\" in \\\",$convert.elapsed_time=$d.custom=tm_started\"),\
+        \") [\", (d.hash), \"]\""
 
-method.set_key = event.download.inserted_new, !log, "d.log_event_sized=added"
-method.set_key = event.download.resumed,      !log, "d.log_event=started"
-method.set_key = event.download.paused,       !log, "d.log_event=stopped"
-method.set_key = event.download.finished,     !log, "d.log_finished="
-method.set_key = event.download.erased,       !log, "d.log_event_sized=erased"
+method.set_key = event.download.inserted_new, !log, ((d.log_event_sized, added))
+method.set_key = event.download.resumed,      !log, ((d.log_event, started))
+method.set_key = event.download.paused,       !log, ((d.log_event, stopped))
+method.set_key = event.download.finished,     !log, ((d.log_finished))
+method.set_key = event.download.erased,       !log, ((d.log_event_sized, erased))
 
 # SCHEDULE: activity summary every 5 min (first sample after 60s)
-schedule = log_stats, 60, 900,\
+schedule = log_stats, 60, 300,\
     ((log.print, (enum.log_group, info),\
         "stats: torrents=", ((view.size, "main")),\
         " started=",        ((view.size, "started")),\
@@ -77,18 +71,19 @@ pieces.hash.on_completion.set = no
 pieces.preload.type.set = 0
 pieces.memory.max.set = 3600M
 
-method.insert = watch.load.start_verbose, simple|private, \
-    "branch=(!file.match=(argument.0), *.torrent), , load.start_verbose=(argument.0) ; d.delete_tied="
-method.insert = watch.load.verbose, simple|private, \
-    "branch=(!file.match=(argument.0), *.torrent), , load.verbose=(argument.0) ; d.delete_tied="
+method.insert = watch.load.start_verbose, simple|private,\
+    "branch=\"match=argument.0=,.*[.]torrent$\",\"load.start_verbose=$argument.0=,d.delete_tied=\""
+
+method.insert = watch.load.verbose, simple|private,\
+    "branch=\"match=argument.0=,.*[.]torrent$\",\"load.verbose=$argument.0=,d.delete_tied=\""
 
 directory.watch.ready = (cat, (cfg.watch), "start/"), watch.load.start_verbose
 directory.watch.ready = (cat, (cfg.watch), "load/"), watch.load.verbose
 
 method.set_key = event.download.finished, move_on_complete,\
-    "d.custom.set = move_state, queued ;\
-     execute.nothrow.bg = /opt/bin/rtmove"
-schedule = move_sweep, 120, 300, "execute.nothrow.bg = /opt/bin/rtmove"
+    {(d.custom.set, move_state, queued),\
+     (try, ((execute.nothrow.bg, /opt/bin/rtmove)))}
+schedule = move_sweep, 120, 300, ((execute.nothrow.bg, /opt/bin/rtmove))
 
 try_import=/rtorrent/library.rc
 try_import=/rtorrent/config.rc
