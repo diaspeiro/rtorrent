@@ -122,6 +122,7 @@ method.redirect=load.throw,load.normal
 method.redirect=load.start_throw,load.start
 method.insert=d.down.sequential,value|const,0
 method.insert=d.down.sequential.set,value|const,0
+method.set_key = event.download.inserted_new, !loaded_time, "d.custom.set=addtime,$cat=$system.time="
 
 # Return path to item data (never empty, unlike `d.base_path`);
 # multi-file items return a path ending with a '/'.
