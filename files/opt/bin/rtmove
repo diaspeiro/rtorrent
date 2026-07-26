@@ -95,7 +95,7 @@ def finalize(proxy, infohash):
         proxy.d.custom.set(infohash, "move_dest", "")
         proxy.d.save_resume(infohash)
     except Exception as e:
-        print(f"finalize failed {infohash}: {e}")
+        raise MoveError(f"restart failed: {e}") from e
 
 
 def park(proxy, infohash, reason=""):
@@ -198,42 +198,67 @@ def move_one(proxy, infohash):
     if os.path.lexists(final) and not resuming:
         raise MoveError("destination exists")
 
-    if resuming:
-        print(f"resuming {name} [{infohash}]")
-    elif same_fs(src, DST):
-        print(f"moving {name} [{infohash}]")
-        proxy.d.custom.set(infohash, "move_dest", final)
-        os.rename(src, final)
-    else:
-        print(f"moving {name} [{infohash}]")
-        try:
+    local_move = same_fs(src, DST)
+    staged = os.path.join(stage_dir, name)
+
+    try:
+        if resuming:
+            print(f"resuming {name} [{infohash}]")
+        elif local_move:
+            print(f"moving {name} [{infohash}]")
+        else:
+            print(f"copying {name} [{infohash}]")
             os.makedirs(stage_dir, exist_ok=True)
-            rsync = ["rsync", "-a", f"--timeout={RSYNC_TIMEOUT}", "--", src, stage_dir + "/"]
+
+            rsync = [
+                "rsync",
+                "-a",
+                f"--timeout={RSYNC_TIMEOUT}",
+                "--",
+                src,
+                stage_dir + "/",
+            ]
+
             if subprocess.run(rsync).returncode != 0:
                 raise MoveError("rsync failed")
+
+        try:
+            proxy.d.stop(infohash)
             proxy.d.custom.set(infohash, "move_dest", final)
             proxy.d.save_resume(infohash)
-            os.rename(os.path.join(stage_dir, name), final)
-        finally:
-            shutil.rmtree(stage_dir, ignore_errors=True)
+        except Exception as e:
+            raise MoveError(f"stop failed: {e}") from e
+
+        if not resuming:
+            if local_move:
+                os.rename(src, final)
+            else:
+                os.rename(staged, final)
+
+    finally:
+        shutil.rmtree(stage_dir, ignore_errors=True)
 
     try:
         proxy.d.close(infohash)
         proxy.d.directory.set(infohash, DST)
         proxy.d.open(infohash)
+
         base = proxy.d.base_path(infohash).rstrip("/")
     except Exception as e:
-        raise MoveError(f"repoint failed: {e}")
+        raise MoveError(f"repoint failed: {e}") from e
+
     if not within(DST, base):
         raise MoveError("repoint mismatch")
+
+    finalize(proxy, infohash)
+
+    print(f"moved {name} [{infohash}]")
+    post_process(infohash, final)
 
     try:
         delete_source(src)
     except Exception as e:
         print(f"source cleanup failed {infohash}: {e}")
-    print(f"moved {name} [{infohash}]")
-    post_process(infohash, final)
-    finalize(proxy, infohash)
 
 
 def main():
