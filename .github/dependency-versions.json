@@ -10,9 +10,9 @@
     "sha256": "60d002aedfde061240ee2b9fd3f845e86261c1900b0a4f696c6c03166f6b5fa8"
   },
   "curl": {
-    "version": "8.21.0",
-    "url": "https://github.com/curl/curl/releases/download/curl-8_21_0/curl-8.21.0.tar.gz",
-    "sha256": "d9b327997999045a24cda50f3983e69e51c516bd8be6ef9842fc7f99135e33bb"
+    "version": "8.22.0",
+    "url": "https://github.com/curl/curl/releases/download/curl-8_22_0/curl-8.22.0.tar.gz",
+    "sha256": "d54dd598bf05927a726deb38df31c6a255ba83ff1de57c5d1464dac3ed8f44a1"
   },
   "cares": {
     "version": "1.34.8",
