@@ -14,7 +14,7 @@ ENV CFLAGS="-O2 -I/opt/include -pipe -fno-plt -mshstk -Wformat -Wformat-security
 WORKDIR /build
 
 RUN --mount=type=cache,target=/var/cache,sharing=locked <<ENDRUN
-apk add autoconf automake ca-certificates cmake curl gcc git jq libtool make patch perl pkgconf pkgconf-dev posix-libc-utils python-3.13 py3.13-pip py3.13-wheel
+apk add autoconf automake ca-certificates cmake curl gcc git jq libtool make patch perl pkgconf pkgconf-dev posix-libc-utils python-3.15 py3.15-pip py3-wheel
 ENDRUN
 
 SHELL ["/bin/bash", "-c"]
@@ -87,6 +87,7 @@ set -uex
 umask 0022
 fetch-dep libtorrent
 cd libtorrent
+patch -p1 -i /patches/lt-0_16_25-update_to_master_plus_reqq_tweak.diff
 autoreconf -fiv
 CFLAGS="${CFLAGS// -Werror=implicit-function-declaration/}" CXXFLAGS="${CXXFLAGS// -Werror=implicit-function-declaration/}" ./configure --prefix=/opt --disable-debug
 make -j$(getconf _NPROCESSORS_ONLN)
@@ -101,6 +102,7 @@ set -uex
 umask 0022
 fetch-dep rtorrent
 cd rtorrent
+patch -p1 -i /patches/rt-0_16_25-update_to_master.diff
 autoreconf -fiv
 CFLAGS="${CFLAGS// -Werror=implicit-function-declaration/}" CXXFLAGS="${CXXFLAGS// -Werror=implicit-function-declaration/}" ./configure --prefix=/opt --disable-debug --with-xmlrpc-tinyxml2 --without-ncurses
 make -j$(getconf _NPROCESSORS_ONLN)
@@ -113,8 +115,8 @@ set -uex
 umask 0022
 pip wheel --wheel-dir=/build/wheels \
     git+https://github.com/kannibalox/pyrosimple@d24655a708059d322633e361e2e204983e51f491 \
-    git+https://github.com/cinemagoer/cinemagoer@aca62692b6f0ca7ed9c70871bafd8b558c6ba6ec \
-    git+https://github.com/guessit-io/guessit@c7b39db259b9c988046eb5200862b87d26d54696
+    git+https://github.com/cinemagoer/cinemagoer@19642b579e5c28407b381e220642d306a9dba59d \
+    git+https://github.com/guessit-io/guessit@3c73072b8971d412935c6f749be63c564dd41385
 ENDRUN
 
 # Cleanup
@@ -140,7 +142,7 @@ RUN --mount=type=cache,target=/var/cache,sharing=locked \
     --mount=type=bind,source=files,target=/mnt/files <<ENDRUN
 set -uex
 umask 0022
-apk add --no-interactive bash ca-certificates curl jq libstdc++ python-3.13 py3.13-pip py3.13-wheel rsync tzdata
+apk add --no-interactive bash ca-certificates curl jq libstdc++ python-3.15 py3.15-pip py3-wheel rsync tzdata
 cp -a /mnt/opt/. /opt
 python3 -m venv /opt/venv
 /opt/venv/bin/pip install --no-index --find-links=/mnt/wheels pyrosimple cinemagoer guessit

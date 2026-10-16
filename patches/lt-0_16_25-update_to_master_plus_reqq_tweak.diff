@@ -1,0 +1,2439 @@
+diff --git a/src/data/chunk_list.cc b/src/data/chunk_list.cc
+index 5504d822..550fda7f 100644
+--- a/src/data/chunk_list.cc
++++ b/src/data/chunk_list.cc
+@@ -10,8 +10,10 @@
+ #include "torrent/utils/log.h"
+ #include "utils/instrumentation.h"
+ 
+-#define LT_LOG_THIS(log_level, log_fmt, ...)                              \
+-  lt_log_print_data(LOG_STORAGE_##log_level, m_data, "chunk_list", log_fmt, __VA_ARGS__);
++#define LT_LOG_DEBUG(log_fmt, ...)                                        \
++  lt_log_print_hash(LOG_STORAGE_DEBUG, m_data->hash(), "chunk_list : " log_fmt, __VA_ARGS__);
++#define LT_LOG_EVENTS(log_fmt, ...)                                       \
++  lt_log_print_hash(LOG_STORAGE_EVENTS, m_data->hash(), "chunk_list : " log_fmt, __VA_ARGS__);
+ 
+ namespace torrent {
+ 
+@@ -31,7 +33,7 @@ ChunkList::is_queued(ChunkListNode* node) {
+ 
+ void
+ ChunkList::resize(size_type to_size) {
+-  LT_LOG_THIS(INFO, "Resizing: from:%zu to:%u.", size(), to_size);
++  LT_LOG_EVENTS("resize : from:%zu to:%u.", size(), to_size);
+ 
+   if (!empty())
+     throw internal_error("ChunkList::resize(...) called on an non-empty object.");
+@@ -48,7 +50,7 @@ ChunkList::resize(size_type to_size) {
+ 
+ void
+ ChunkList::clear() {
+-  LT_LOG_THIS(INFO, "Clearing.", 0);
++  LT_LOG_EVENTS("clear", 0);
+ 
+   // Don't do any sync'ing as whomever decided to shut down really
+   // doesn't care, so just de-reference all chunks in queue.
+@@ -81,7 +83,7 @@ ChunkList::clear() {
+ 
+ ChunkHandle
+ ChunkList::get(size_type index, get_flags flags) {
+-  LT_LOG_THIS(DEBUG, "Get: index:%" PRIu32 " flags:%#x.", index, flags);
++  LT_LOG_DEBUG("get : index:%" PRIu32 " flags:%#x.", index, flags);
+ 
+   errno = 0;
+ 
+@@ -92,7 +94,7 @@ ChunkList::get(size_type index, get_flags flags) {
+ 
+   if (!node->is_valid()) {
+     if (!m_manager->allocate(m_chunk_size, allocate_flags)) {
+-      LT_LOG_THIS(DEBUG, "Could not allocate: memory:%" PRIu64 " block:%" PRIu32 ".",
++      LT_LOG_DEBUG("could not allocate : memory:%" PRIu64 " block:%" PRIu32 ".",
+                   runtime::memory_manager()->memory_usage(), runtime::memory_manager()->memory_block_count());
+ 
+       return ChunkHandle::from_error(ENOMEM);
+@@ -110,7 +112,7 @@ ChunkList::get(size_type index, get_flags flags) {
+     if (chunk == nullptr) {
+       int err = errno;
+ 
+-      LT_LOG_THIS(DEBUG, "Could not create: memory:%" PRIu64 " block:%" PRIu32 " errno:%i errmsg:%s.",
++      LT_LOG_DEBUG("could not create : memory:%" PRIu64 " block:%" PRIu32 " errno:%i errmsg:%s.",
+                   runtime::memory_manager()->memory_usage(), runtime::memory_manager()->memory_block_count(),
+                   err, std::strerror(err));
+ 
+@@ -169,7 +171,7 @@ ChunkList::release(ChunkHandle* handle, release_flags flags) {
+   if (handle->object() < &*begin() || handle->object() >= &*end())
+     throw internal_error("ChunkList::release(...) received an unknown handle.");
+ 
+-  LT_LOG_THIS(DEBUG, "Release: index:%" PRIu32 " flags:%#x.", handle->index(), flags);
++  LT_LOG_DEBUG("release : index:%" PRIu32 " flags:%#x.", handle->index(), flags);
+ 
+   if (handle->object()->references() <= 0 ||
+       (handle->is_writable() && handle->object()->writable() <= 0) ||
+@@ -247,7 +249,7 @@ ChunkList::sync_chunk(ChunkListNode* node, std::pair<int,bool> options) {
+ 
+ uint32_t
+ ChunkList::sync_chunks(cache_list& cache, sync_flags flags) {
+-  LT_LOG_THIS(DEBUG, "Sync chunks: flags:%#x.", flags);
++  LT_LOG_DEBUG("sync chunks : flags:%#x.", flags);
+ 
+   if (m_queue.empty())
+     return 0;
+diff --git a/src/data/hash_queue.cc b/src/data/hash_queue.cc
+index 34fac76a..383b860c 100644
+--- a/src/data/hash_queue.cc
++++ b/src/data/hash_queue.cc
+@@ -15,8 +15,8 @@
+ #include "torrent/utils/log.h"
+ #include "torrent/utils/string_manip.h"
+ 
+-#define LT_LOG_DATA(data, log_level, log_fmt, ...)                       \
+-  lt_log_print_data(LOG_STORAGE_##log_level, data, "hash_queue", log_fmt, __VA_ARGS__);
++#define LT_LOG_DEBUG(data, log_fmt, ...)                                 \
++  lt_log_print_hash(LOG_STORAGE_DEBUG, data->hash(), "hash_queue : " log_fmt, __VA_ARGS__);
+ 
+ namespace torrent {
+ 
+@@ -46,7 +46,7 @@ struct HashQueueWillneed {
+ // the next work cycle gets stuff done.
+ void
+ HashQueue::push_back(ChunkHandle handle, HashQueueNode::id_type id, slot_done_type d) {
+-  LT_LOG_DATA(id, DEBUG, "Adding index:%" PRIu32 " to queue.", handle.index());
++  LT_LOG_DEBUG(id, "add to queue : index:%" PRIu32 ".", handle.index());
+ 
+   if (!handle.is_loaded())
+     throw internal_error("HashQueue::add(...) received an invalid chunk");
+@@ -76,7 +76,7 @@ HashQueue::remove(HashQueueNode::id_type id) {
+ 
+     HashChunk *hash_chunk = itr.get_chunk();
+ 
+-    LT_LOG_DATA(id, DEBUG, "Removing index:%" PRIu32 " from queue.", hash_chunk->handle().index());
++    LT_LOG_DEBUG(id, "remove from queue : index:%" PRIu32 ".", hash_chunk->handle().index());
+ 
+     bool result = ThreadDisk::thread_disk()->hash_check_queue()->remove(hash_chunk);
+ 
+@@ -150,7 +150,7 @@ HashQueue::work() {
+     if (itr == end())
+       throw internal_error("Could not find done chunk's node.");
+ 
+-    LT_LOG_DATA(itr->id(), DEBUG, "Passing index:%" PRIu32 " to owner: %s.",
++    LT_LOG_DEBUG(itr->id(), "pass to owner : index:%" PRIu32 " hash:%s.",
+                 hash_chunk->handle().index(), utils::transform_to_hex_str(hash_value).c_str());
+ 
+     HashQueueNode::slot_done_type slotDone = itr->slot_done();
+diff --git a/src/data/hash_torrent.cc b/src/data/hash_torrent.cc
+index 080d6a13..b851983b 100644
+--- a/src/data/hash_torrent.cc
++++ b/src/data/hash_torrent.cc
+@@ -10,8 +10,12 @@
+ 
+ #include "hash_torrent.h"
+ 
+-#define LT_LOG_THIS(log_level, log_fmt, ...)                            \
+-  lt_log_print_data(LOG_STORAGE_##log_level, m_chunk_list->data(), "hash_torrent", log_fmt, __VA_ARGS__);
++#define LT_LOG_DEBUG(log_fmt, ...)                                      \
++  lt_log_print_hash(LOG_STORAGE_DEBUG, m_chunk_list->data()->hash(), "hash_torrent : " log_fmt, __VA_ARGS__);
++#define LT_LOG_EVENTS(log_fmt, ...)                                     \
++  lt_log_print_hash(LOG_STORAGE_EVENTS, m_chunk_list->data()->hash(), "hash_torrent : " log_fmt, __VA_ARGS__);
++#define LT_LOG_ERRORS(log_fmt, ...)                                     \
++  lt_log_print_hash(LOG_STORAGE_ERRORS, m_chunk_list->data()->hash(), "hash_torrent : " log_fmt, __VA_ARGS__);
+ 
+ namespace torrent {
+ 
+@@ -22,7 +26,7 @@ HashTorrent::HashTorrent(ChunkList* c) :
+ 
+ bool
+ HashTorrent::start(bool try_quick) {
+-  LT_LOG_THIS(INFO, "start : position:%u size:%zu quick:%u.", m_position, m_chunk_list->size(), try_quick);
++  LT_LOG_EVENTS("start : position:%u size:%zu quick:%u.", m_position, m_chunk_list->size(), try_quick);
+ 
+   if (m_position == m_chunk_list->size())
+     return true;
+@@ -39,7 +43,7 @@ HashTorrent::start(bool try_quick) {
+ 
+ void
+ HashTorrent::clear() {
+-  LT_LOG_THIS(INFO, "clear", 0);
++  LT_LOG_EVENTS("clear", 0);
+ 
+   m_outstanding = -1;
+   m_position = 0;
+@@ -62,7 +66,7 @@ HashTorrent::is_checked() const {
+ // to be delayed.
+ void
+ HashTorrent::confirm_checked() {
+-  LT_LOG_THIS(INFO, "confirmed checked", 0);
++  LT_LOG_EVENTS("confirmed checked", 0);
+ 
+   if (m_outstanding != 0)
+     throw internal_error("HashTorrent::confirm_checked() m_outstanding != 0.");
+@@ -72,7 +76,7 @@ HashTorrent::confirm_checked() {
+ 
+ void
+ HashTorrent::receive_chunkdone(uint32_t index) {
+-  LT_LOG_THIS(DEBUG, "received chunk done: index:%" PRIu32 " outstanding:%i.", index, m_outstanding);
++  LT_LOG_DEBUG("received chunk done : index:%" PRIu32 " outstanding:%i.", index, m_outstanding);
+ 
+   if (m_outstanding <= 0)
+     throw internal_error("HashTorrent::receive_chunkdone() m_outstanding <= 0.");
+@@ -92,7 +96,7 @@ HashTorrent::receive_chunkdone(uint32_t index) {
+ // restart.
+ void
+ HashTorrent::receive_chunk_cleared(uint32_t index) {
+-  LT_LOG_THIS(DEBUG, "received chunk cleared: index:%" PRIu32 " outstanding:%i.", index, m_outstanding);
++  LT_LOG_DEBUG("received chunk cleared : index:%" PRIu32 " outstanding:%i.", index, m_outstanding);
+ 
+   if (m_outstanding <= 0)
+     throw internal_error("HashTorrent::receive_chunk_cleared() m_outstanding < 0.");
+@@ -106,7 +110,7 @@ HashTorrent::receive_chunk_cleared(uint32_t index) {
+ 
+ void
+ HashTorrent::queue(bool quick) {
+-  LT_LOG_THIS(INFO, "queuing : position:%u outstanding:%i quick:%u", m_position, m_outstanding, quick);
++  LT_LOG_EVENTS("queue : position:%u outstanding:%i quick:%u", m_position, m_outstanding, quick);
+ 
+   if (!is_checking())
+     throw internal_error("HashTorrent::queue() called but it's not running.");
+@@ -140,12 +144,12 @@ HashTorrent::queue(bool quick) {
+         throw internal_error("HashTorrent::queue() quick hashing but m_outstanding != 0.");
+ 
+       if (handle.is_valid()) {
+-        LT_LOG_THIS(DEBUG, "quick : skip valid handle : position:%u", m_position);
++        LT_LOG_DEBUG("quick : skip valid handle : position:%u", m_position);
+         return m_chunk_list->release(&handle, ChunkList::release_dont_log);
+       }
+ 
+       if (handle.error_number() != 0 && handle.error_number() != ENOENT) {
+-        LT_LOG_THIS(DEBUG, "quick : skip invalid handle with non-ENOENT error : position:%u errno:%s",
++        LT_LOG_DEBUG("quick : skip invalid handle with non-ENOENT error : position:%u errno:%s",
+                     m_position, system::errno_enum(handle.error_number()));
+         return;
+       }
+@@ -158,7 +162,7 @@ HashTorrent::queue(bool quick) {
+     // file that hasn't be created/resized. Which means we ignore it
+     // when doing initial hashing.
+     if (handle.error_number() == ENOMEM) {
+-      LT_LOG_THIS(INFO, "ENOMEM during hash, retrying: position:%u outstanding:%i", m_position, m_outstanding);
++      LT_LOG_ERRORS("ENOMEM during hash, retrying : position:%u outstanding:%i", m_position, m_outstanding);
+ 
+       if (m_outstanding == 0)
+         this_thread::scheduler()->update_wait_for(&m_delay_retry, std::chrono::milliseconds(100));
+@@ -185,7 +189,7 @@ HashTorrent::queue(bool quick) {
+       m_errno = handle.error_number();
+       m_error_message = "Hash check I/O error at chunk " + std::to_string(error_pos) + ": " + std::strerror(handle.error_number());
+ 
+-      LT_LOG_THIS(INFO, "completed with error: position:%u errno:%s", m_position, system::errno_enum(handle.error_number()));
++      LT_LOG_ERRORS("completed with error : position:%u errno:%s", m_position, system::errno_enum(handle.error_number()));
+ 
+       this_thread::scheduler()->update_wait_for(&m_delay_checked, 0s);
+       return;
+@@ -207,7 +211,7 @@ HashTorrent::queue(bool quick) {
+   }
+ 
+   if (m_outstanding == 0) {
+-    LT_LOG_THIS(INFO, "completed : position:%u", m_position);
++    LT_LOG_EVENTS("completed : position:%u", m_position);
+ 
+     // Update the scheduled item just to make sure that if hashing is
+     // started again during the delay it won't cause an exception.
+diff --git a/src/data/socket_file.cc b/src/data/socket_file.cc
+index a46ea2d3..f8c9bf51 100644
+--- a/src/data/socket_file.cc
++++ b/src/data/socket_file.cc
+@@ -13,7 +13,7 @@
+ #include "torrent/utils/log.h"
+ 
+ #define LT_LOG_ERROR(log_fmt, ...)                                      \
+-  lt_log_print(LOG_STORAGE, "socket_file->%i: " log_fmt, m_fd, __VA_ARGS__);
++  lt_log_print(LOG_STORAGE_ERRORS, "socket_file : fd:%i " log_fmt, m_fd, __VA_ARGS__);
+ 
+ namespace torrent {
+ 
+diff --git a/src/dht/dht_node.cc b/src/dht/dht_node.cc
+index 75725fb2..54fbcd48 100644
+--- a/src/dht/dht_node.cc
++++ b/src/dht/dht_node.cc
+@@ -8,7 +8,7 @@
+ #include "net/address_list.h"
+ 
+ #define LT_LOG_THIS(log_fmt, ...)                                       \
+-  lt_log_print_hash(torrent::LOG_DHT_NODE, this->id(), "dht_node", log_fmt, __VA_ARGS__);
++  lt_log_print_hash(LOG_DHT_NODE, this->id(), "dht_node : " log_fmt, __VA_ARGS__);
+ 
+ namespace torrent {
+ 
+diff --git a/src/dht/dht_router.cc b/src/dht/dht_router.cc
+index 5a823fc1..227bb9dd 100644
+--- a/src/dht/dht_router.cc
++++ b/src/dht/dht_router.cc
+@@ -16,7 +16,7 @@
+ #include "utils/sha1.h"
+ 
+ #define LT_LOG_THIS(log_fmt, ...)                                       \
+-  lt_log_print_hash(torrent::LOG_DHT_ROUTER, this->id(), "dht_router", log_fmt, __VA_ARGS__);
++  lt_log_print_hash(LOG_DHT_ROUTER, this->id(), "dht_router : " log_fmt, __VA_ARGS__);
+ 
+ namespace torrent {
+ 
+diff --git a/src/dht/dht_server.cc b/src/dht/dht_server.cc
+index 05e21064..30e40380 100644
+--- a/src/dht/dht_server.cc
++++ b/src/dht/dht_server.cc
+@@ -24,7 +24,7 @@
+ #include "tracker/tracker_dht.h"
+ 
+ #define LT_LOG_THIS(log_fmt, ...)                                       \
+-  lt_log_print_subsystem(torrent::LOG_DHT_SERVER, "dht_server", log_fmt, __VA_ARGS__);
++  lt_log_print(LOG_DHT_SERVER, "dht_server : " log_fmt, __VA_ARGS__);
+ 
+ namespace {
+ 
+diff --git a/src/download/download_main.cc b/src/download/download_main.cc
+index edcbd65c..b6b594f9 100644
+--- a/src/download/download_main.cc
++++ b/src/download/download_main.cc
+@@ -34,9 +34,6 @@
+ #include "tracker/tracker_controller.h"
+ #include "tracker/tracker_list.h"
+ 
+-#define LT_LOG_THIS(log_level, log_fmt, ...)                         \
+-  lt_log_print_info(LOG_TORRENT_##log_level, m_ptr->info(), "download", log_fmt, __VA_ARGS__);
+-
+ namespace torrent {
+ 
+ DownloadMain::DownloadMain()
+diff --git a/src/download/download_wrapper.cc b/src/download/download_wrapper.cc
+index 1baf9e11..376eb493 100644
+--- a/src/download/download_wrapper.cc
++++ b/src/download/download_wrapper.cc
+@@ -21,10 +21,10 @@
+ #include "utils/functional.h"
+ #include "utils/sha1.h"
+ 
+-#define LT_LOG_THIS(log_fmt, ...)                                       \
+-  lt_log_print_info(LOG_TORRENT_INFO, this->info(), "download", log_fmt, __VA_ARGS__);
++#define LT_LOG_DEBUG(log_fmt, ...)                                     \
++  lt_log_print_hash(LOG_TORRENT_DEBUG, this->info()->hash(), "download : " log_fmt, __VA_ARGS__);
+ #define LT_LOG_STORAGE_ERRORS(log_fmt, ...)                             \
+-  lt_log_print_info(LOG_PROTOCOL_STORAGE_ERRORS, this->info(), "storage_errors", log_fmt, __VA_ARGS__);
++  lt_log_print_hash(LOG_PROTOCOL_STORAGE_ERRORS, this->info()->hash(), "storage_errors : " log_fmt, __VA_ARGS__);
+ 
+ namespace torrent {
+ 
+@@ -294,7 +294,7 @@ DownloadWrapper::receive_tick(uint32_t ticks) {
+ 
+ void
+ DownloadWrapper::receive_update_priorities() {
+-  LT_LOG_THIS("update priorities: chunks_selected:%" PRIu32 " wanted_chunks:%" PRIu32,
++  LT_LOG_DEBUG("update priorities : chunks_selected:%" PRIu32 " wanted_chunks:%" PRIu32,
+               m_main->chunk_selector()->size(), data()->wanted_chunks());
+ 
+   data()->mutable_high_priority()->clear();
+diff --git a/src/net/dns_buffer.cc b/src/net/dns_buffer.cc
+index 6466f353..fc302e40 100644
+--- a/src/net/dns_buffer.cc
++++ b/src/net/dns_buffer.cc
+@@ -15,10 +15,10 @@
+ #include "torrent/system/types.h"
+ #include "torrent/utils/log.h"
+ 
+-#define LT_LOG(log_fmt, ...)                                            \
+-  lt_log_print_subsystem(LOG_NET_DNS, "dns-buffer", log_fmt, __VA_ARGS__);
++#define LT_LOG(log_fmt, ...)                                        \
++  lt_log_print(LOG_NET_DNS, "dns-buffer : " log_fmt, __VA_ARGS__);
+ #define LT_LOG_REQUESTER(log_fmt, ...)                                  \
+-  lt_log_print(LOG_NET_DNS, "%016p->dns-buffer : " log_fmt, requester, __VA_ARGS__);
++  lt_log_print(LOG_NET_DNS, "%016p : dns-buffer : " log_fmt, requester, __VA_ARGS__);
+ 
+ namespace torrent::net {
+ 
+diff --git a/src/net/udns_resolver.cc b/src/net/udns_resolver.cc
+index 671855c2..52eae355 100644
+--- a/src/net/udns_resolver.cc
++++ b/src/net/udns_resolver.cc
+@@ -19,11 +19,11 @@
+ #include "torrent/system/types.h"
+ 
+ #define LT_LOG(log_fmt, ...)                                \
+-  lt_log_print_subsystem(LOG_NET_DNS, "dns-resolver", log_fmt, __VA_ARGS__);
++  lt_log_print(LOG_NET_DNS, "dns-resolver : " log_fmt, __VA_ARGS__);
+ #define LT_LOG_QUERY(log_fmt, ...)                                  \
+-  lt_log_print(LOG_NET_DNS, "%016p->dns-resolver : " log_fmt, query->requester, __VA_ARGS__);
++  lt_log_print(LOG_NET_DNS, "%016p : dns-resolver : " log_fmt, query->requester, __VA_ARGS__);
+ #define LT_LOG_REQUESTER(log_fmt, ...)                                  \
+-  lt_log_print(LOG_NET_DNS, "%016p->dns-resolver : " log_fmt, requester, __VA_ARGS__);
++  lt_log_print(LOG_NET_DNS, "%016p : dns-resolver : " log_fmt, requester, __VA_ARGS__);
+ 
+ namespace torrent::net {
+ 
+diff --git a/src/protocol/extensions.cc b/src/protocol/extensions.cc
+index 2d4ffd15..42e79963 100644
+--- a/src/protocol/extensions.cc
++++ b/src/protocol/extensions.cc
+@@ -4,6 +4,7 @@
+ 
+ #include <cstdarg>
+ #include <cstdio>
++#include <limits>
+ 
+ #include "manager.h"
+ #include "download/download_main.h"
+@@ -314,6 +315,13 @@ ProtocolExtension::parse_handshake() {
+   if (message[key_metadataSize].is_value())
+     m_download->set_metadata_size(message[key_metadataSize].as_value());
+ 
++  if (message[key_reqq].is_value()) {
++    int64_t reqq = message[key_reqq].as_value();
++
++    if (reqq > 0)
++      m_peer_request_queue = std::min<int64_t>(reqq, std::numeric_limits<uint32_t>::max());
++  }
++
+   m_flags &= ~flag_initial_handshake;
+ 
+   return true;
+diff --git a/src/protocol/extensions.h b/src/protocol/extensions.h
+index c3872703..4aa4f3ca 100644
+--- a/src/protocol/extensions.h
++++ b/src/protocol/extensions.h
+@@ -47,6 +47,9 @@ public:
+   // Maximum number of upload requests accepted from one peer.
+   static constexpr size_t max_request_queue_size = 2048;
+ 
++  // Default request queue size for a peer that does not send "reqq" in the handshake.
++  static constexpr uint32_t default_peer_request_queue_size = 500;
++
+   static size_t       metadata_piece_length(size_t piece, size_t metadata_size);
+ 
+   ProtocolExtension();
+@@ -94,6 +97,9 @@ public:
+ 
+   bool                is_default() const               { return m_flags & flag_default; }
+ 
++  // The size of a peer's request queue: "reqq" from the handshake, or the default value if none was sent.
++  uint32_t            peer_request_queue() const       { return m_peer_request_queue; }
++
+   // Initial PEX message after peer enables PEX needs to send full list
+   // of peers instead of the delta list, so keep track of that.
+   bool                is_initial_handshake() const     { return m_flags & flag_initial_handshake; }
+@@ -129,6 +135,7 @@ private:
+   // Set HANDSHAKE as enabled and supported. Those bits should not be
+   // touched.
+   int                 m_flags{flag_local_enabled_base | flag_remote_supported_base | flag_initial_handshake};
++  uint32_t            m_peer_request_queue{default_peer_request_queue_size};
+   PeerInfo*           m_peerInfo{};
+   DownloadMain*       m_download{};
+   PeerConnectionBase* m_connection{};
+diff --git a/src/protocol/peer_chunks.h b/src/protocol/peer_chunks.h
+index 007571b8..1889a26c 100644
+--- a/src/protocol/peer_chunks.h
++++ b/src/protocol/peer_chunks.h
+@@ -8,6 +8,7 @@
+ #include "torrent/data/piece.h"
+ #include "torrent/rate.h"
+ #include "torrent/system/scheduler.h"
++#include "torrent/utils/linked_unordered_set.h"
+ #include "utils/partial_queue.h"
+ 
+ namespace torrent {
+@@ -16,7 +17,7 @@ class PeerInfo;
+ 
+ class PeerChunks {
+ public:
+-  using piece_list_type = std::list<Piece>;
++  using piece_list_type = torrent::utils::linked_unordered_set<Piece>;
+ 
+   bool                is_seeder() const             { return m_bitfield.is_all_set(); }
+ 
+diff --git a/src/protocol/peer_connection_base.cc b/src/protocol/peer_connection_base.cc
+index 3792ff04..1fb5ea88 100644
+--- a/src/protocol/peer_connection_base.cc
++++ b/src/protocol/peer_connection_base.cc
+@@ -20,7 +20,7 @@
+ #include "torrent/utils/log.h"
+ 
+ #define LT_LOG_PIECE_EVENTS(log_fmt, ...)                               \
+-  lt_log_print_info(LOG_PROTOCOL_PIECE_EVENTS, this->download()->info(), "piece_events", "%40.40s " log_fmt, this->peer_info()->id_hex(), __VA_ARGS__);
++  lt_log_print_info(LOG_PROTOCOL_PIECE_EVENTS, this->download()->info(), "%40.40s : piece_events : " log_fmt, this->peer_info()->id_hex(), __VA_ARGS__);
+ 
+ 
+ namespace torrent {
+@@ -384,7 +384,7 @@ PeerConnectionBase::cancel_transfer(BlockTransfer* transfer) {
+ 
+   write_insert_poll_safe();
+ 
+-  m_peer_chunks.cancel_queue()->push_back(transfer->piece());
++  m_peer_chunks.cancel_queue()->insert_back(transfer->piece());
+ }
+ 
+ void
+@@ -814,7 +814,7 @@ PeerConnectionBase::up_chunk_release() {
+ 
+ void
+ PeerConnectionBase::read_request_piece(const Piece& p) {
+-  auto upload_queue = m_peer_chunks.upload_queue();
++  auto* upload_queue = m_peer_chunks.upload_queue();
+ 
+   if (m_up_choke.choked() ||
+       upload_queue->size() >= ProtocolExtension::max_request_queue_size ||
+@@ -824,17 +824,12 @@ PeerConnectionBase::read_request_piece(const Piece& p) {
+     return;
+   }
+ 
+-  auto itr = std::find(upload_queue->begin(),
+-                       upload_queue->end(),
+-                       p);
+-
+-  if (itr != upload_queue->end()) {
++  if (!upload_queue->insert_back(p)) {
+     LT_LOG_PIECE_EVENTS("(up)   request_ignored  %" PRIu32 " %" PRIu32 " %" PRIu32,
+                         p.index(), p.offset(), p.length());
+     return;
+   }
+ 
+-  upload_queue->push_back(p);
+   write_insert_poll_safe();
+ 
+   LT_LOG_PIECE_EVENTS("(up)   request_added    %" PRIu32 " %" PRIu32 " %" PRIu32,
+@@ -843,13 +838,7 @@ PeerConnectionBase::read_request_piece(const Piece& p) {
+ 
+ void
+ PeerConnectionBase::read_cancel_piece(const Piece& p) {
+-  auto itr = std::find(m_peer_chunks.upload_queue()->begin(),
+-                       m_peer_chunks.upload_queue()->end(),
+-                       p);
+-
+-  if (itr != m_peer_chunks.upload_queue()->end()) {
+-    m_peer_chunks.upload_queue()->erase(itr);
+-
++  if (m_peer_chunks.upload_queue()->erase(p)) {
+     LT_LOG_PIECE_EVENTS("(up)   cancel_requested %" PRIu32 " %" PRIu32 " %" PRIu32,
+                         p.index(), p.offset(), p.length());
+   } else {
+@@ -860,8 +849,7 @@ PeerConnectionBase::read_cancel_piece(const Piece& p) {
+ 
+ void
+ PeerConnectionBase::write_prepare_piece() {
+-  m_up_piece = m_peer_chunks.upload_queue()->front();
+-  m_peer_chunks.upload_queue()->pop_front();
++  m_up_piece = m_peer_chunks.upload_queue()->pop_front();
+ 
+   // Move these checks somewhere else?
+   if (!m_download->file_list()->is_valid_piece(m_up_piece) ||
+@@ -920,7 +908,7 @@ PeerConnectionBase::try_request_pieces() {
+   if (request_list()->queued_empty())
+     m_down_stall = 0;
+ 
+-  uint32_t pipeSize = request_list()->calculate_pipe_size(m_peer_chunks.download_throttle()->rate()->rate());
++  uint32_t pipeSize = request_list()->calculate_pipe_size(m_peer_chunks.download_throttle()->rate()->rate(), m_extensions->peer_request_queue());
+ 
+   // Don't start requesting if we can't do it in large enough chunks.
+   if (request_list()->pipe_size() >= (pipeSize + 10) / 2)
+diff --git a/src/protocol/peer_connection_leech.cc b/src/protocol/peer_connection_leech.cc
+index be5c46fe..417e15db 100644
+--- a/src/protocol/peer_connection_leech.cc
++++ b/src/protocol/peer_connection_leech.cc
+@@ -20,9 +20,9 @@
+ #include "torrent/runtime/runtime.h"
+ 
+ #define LT_LOG_NETWORK_ERRORS(log_fmt, ...)                              \
+-  lt_log_print_info(LOG_PROTOCOL_NETWORK_ERRORS, this->download()->info(), "network_errors", "%40.40s " log_fmt, this->peer_info()->id_hex(), __VA_ARGS__);
++  lt_log_print_info(LOG_PROTOCOL_NETWORK_ERRORS, this->download()->info(), "%40.40s : network_errors : " log_fmt, this->peer_info()->id_hex(), __VA_ARGS__);
+ #define LT_LOG_STORAGE_ERRORS(log_fmt, ...)                              \
+-  lt_log_print_info(LOG_PROTOCOL_STORAGE_ERRORS, this->download()->info(), "storage_errors", "%40.40s " log_fmt, this->peer_info()->id_hex(), __VA_ARGS__);
++  lt_log_print_hash(LOG_PROTOCOL_STORAGE_ERRORS, this->download()->info()->hash(), "storage_errors : peer:%40.40s : " log_fmt, this->peer_info()->id_hex(), __VA_ARGS__);
+ 
+ namespace torrent {
+ 
+@@ -497,6 +497,7 @@ PeerConnection<type>::fill_write_buffer() {
+     if (m_up_choke.choked()) {
+       m_up->throttle()->erase(m_peer_chunks.upload_throttle());
+       up_chunk_release();
++
+       m_peer_chunks.upload_queue()->clear();
+ 
+       if (m_encrypt_buffer != nullptr) {
+@@ -553,10 +554,8 @@ PeerConnection<type>::fill_write_buffer() {
+   if (type == Download::CONNECTION_INITIAL_SEED && m_up->can_write_have())
+     offer_chunk();
+ 
+-  while (type == Download::CONNECTION_LEECH && !m_peer_chunks.cancel_queue()->empty() && m_up->can_write_cancel()) {
+-    m_up->write_cancel(m_peer_chunks.cancel_queue()->front());
+-    m_peer_chunks.cancel_queue()->pop_front();
+-  }
++  while (type == Download::CONNECTION_LEECH && !m_peer_chunks.cancel_queue()->empty() && m_up->can_write_cancel())
++    m_up->write_cancel(m_peer_chunks.cancel_queue()->pop_front());
+ 
+   if (m_send_pex_mask && m_up->can_write_extension() &&
+       send_pex_message()) {
+@@ -727,6 +726,7 @@ PeerConnection<Download::CONNECTION_INITIAL_SEED>::offer_chunk() {
+   // get another one to offer if not enough other peers are interested even
+   // if the peer would otherwise still be blocked.
+   uint32_t bytesLeft = m_data.bytesLeft;
++
+   if (!m_peer_chunks.upload_queue()->empty() && m_peer_chunks.upload_queue()->front().index() == m_data.lastIndex)
+     bytesLeft -= m_peer_chunks.upload_queue()->front().length();
+ 
+diff --git a/src/protocol/peer_connection_metadata.cc b/src/protocol/peer_connection_metadata.cc
+index 62dd801f..07172477 100644
+--- a/src/protocol/peer_connection_metadata.cc
++++ b/src/protocol/peer_connection_metadata.cc
+@@ -15,9 +15,9 @@
+ #include "torrent/runtime/runtime.h"
+ 
+ #define LT_LOG_METADATA_EVENTS(log_fmt, ...)                            \
+-  lt_log_print_info(LOG_PROTOCOL_METADATA_EVENTS, this->download()->info(), "metadata_events", "%40.40s " log_fmt, this->peer_info()->id_hex(), __VA_ARGS__);
++  lt_log_print_info(LOG_PROTOCOL_METADATA_EVENTS, this->download()->info(), "%40.40s : metadata_events : " log_fmt, this->peer_info()->id_hex(), __VA_ARGS__);
+ #define LT_LOG_STORAGE_ERRORS(log_fmt, ...)                              \
+-  lt_log_print_info(LOG_PROTOCOL_STORAGE_ERRORS, this->download()->info(), "storage_errors", "%40.40s " log_fmt, this->peer_info()->id_hex(), __VA_ARGS__);
++  lt_log_print_hash(LOG_PROTOCOL_STORAGE_ERRORS, this->download()->info()->hash(), "storage_errors : peer:%40.40s " log_fmt, this->peer_info()->id_hex(), __VA_ARGS__);
+ 
+ namespace torrent {
+ 
+@@ -382,7 +382,7 @@ PeerConnectionMetadata::try_request_metadata_pieces() {
+   if (request_list()->queued_empty())
+     m_down_stall = 0;
+ 
+-  uint32_t pipeSize = request_list()->calculate_pipe_size(m_peer_chunks.download_throttle()->rate()->rate());
++  uint32_t pipeSize = request_list()->calculate_pipe_size(m_peer_chunks.download_throttle()->rate()->rate(), m_extensions->peer_request_queue());
+ 
+   // Don't start requesting if we can't do it in large enough chunks.
+   if (request_list()->pipe_size() >= (pipeSize + 10) / 2)
+diff --git a/src/protocol/request_list.cc b/src/protocol/request_list.cc
+index 36e06566..3d70f536 100644
+--- a/src/protocol/request_list.cc
++++ b/src/protocol/request_list.cc
+@@ -320,22 +320,26 @@ RequestList::is_interested_in_active() const {
+ }
+ 
+ uint32_t
+-RequestList::calculate_pipe_size(uint32_t rate) {
++RequestList::calculate_pipe_size(uint32_t rate, uint32_t max_size) {
+   // Change into KB.
+   rate /= 1024;
+ 
++  uint32_t size;
++
+   if (!m_delegator->get_aggressive()) {
+     if (rate < 20)
+-      return rate + 2;
++      size = rate + 2;
+     else
+-      return rate / 5 + 18;
++      size = rate / 5 + 18;
+ 
+   } else {
+     if (rate < 10)
+-      return rate / 5 + 1;
++      size = rate / 5 + 1;
+     else
+-      return rate / 10 + 2;
++      size = rate / 10 + 2;
+   }
++
++  return std::min(size, max_size);
+ }
+ 
+ } // namespace torrent
+diff --git a/src/protocol/request_list.h b/src/protocol/request_list.h
+index 4a5f81f8..97656dc4 100644
+--- a/src/protocol/request_list.h
++++ b/src/protocol/request_list.h
+@@ -78,7 +78,7 @@ public:
+   size_t               choked_size() const                { return m_queues.queue_size(bucket_choked); }
+ 
+   uint32_t             pipe_size() const;
+-  uint32_t             calculate_pipe_size(uint32_t rate);
++  uint32_t             calculate_pipe_size(uint32_t rate, uint32_t max_size);
+ 
+   Delegator*           delegator()                       { return m_delegator; }
+   void                 set_delegator(Delegator* d)       { m_delegator = d; }
+diff --git a/src/torrent/Makefile.am b/src/torrent/Makefile.am
+index fb62df8b..3e90bd1a 100644
+--- a/src/torrent/Makefile.am
++++ b/src/torrent/Makefile.am
+@@ -116,6 +116,7 @@ libtorrent_torrent_la_SOURCES = \
+ 	utils/directory_events.h \
+ 	utils/extents.h \
+ 	utils/file_stat.h \
++	utils/linked_unordered_set.h \
+ 	utils/log.cc \
+ 	utils/log.h \
+ 	utils/log_buffer.cc \
+@@ -127,6 +128,7 @@ libtorrent_torrent_la_SOURCES = \
+ 	utils/ranges.h \
+ 	utils/resume.cc \
+ 	utils/resume.h \
++	utils/scope.h \
+ 	utils/string_manip.cc \
+ 	utils/string_manip.h \
+ 	utils/unordered_vector.h \
+diff --git a/src/torrent/common.h b/src/torrent/common.h
+index fa556a19..09fca7d2 100644
+--- a/src/torrent/common.h
++++ b/src/torrent/common.h
+@@ -2,7 +2,6 @@
+ #define LIBTORRENT_COMMON_H
+ 
+ #include <new>
+-#include <atomic>
+ #include <cerrno>
+ #include <cstddef>
+ #include <cstring>
+diff --git a/src/torrent/data/file_list.cc b/src/torrent/data/file_list.cc
+index 5e368c20..d37fc822 100644
+--- a/src/torrent/data/file_list.cc
++++ b/src/torrent/data/file_list.cc
+@@ -22,8 +22,12 @@
+ #include "torrent/utils/file_stat.h"
+ #include "torrent/utils/log.h"
+ 
+-#define LT_LOG_FL(log_level, log_fmt, ...)                              \
+-  lt_log_print_data(LOG_STORAGE_##log_level, (&m_data), "file_list", log_fmt, __VA_ARGS__);
++#define LT_LOG_DEBUG(log_fmt, ...)                                      \
++  lt_log_print_hash(LOG_STORAGE_DEBUG, m_data.hash(), "file_list : " log_fmt, __VA_ARGS__);
++#define LT_LOG_EVENTS(log_fmt, ...)                                     \
++  lt_log_print_hash(LOG_STORAGE_EVENTS, m_data.hash(), "file_list : " log_fmt, __VA_ARGS__);
++#define LT_LOG_ERRORS(log_fmt, ...)                                     \
++  lt_log_print_hash(LOG_STORAGE_ERRORS, m_data.hash(), "file_list : " log_fmt, __VA_ARGS__);
+ 
+ namespace torrent {
+ 
+@@ -382,7 +386,7 @@ void
+ FileList::open(bool hashing, int flags) {
+   using path_set = std::set<const char*, file_list_cstr_less>;
+ 
+-  LT_LOG_FL(INFO, "Opening.", 0);
++  LT_LOG_EVENTS("open", 0);
+ 
+   if (m_root_dir.empty())
+     throw internal_error("FileList::open() m_root_dir.empty().", data()->hash());
+@@ -459,9 +463,9 @@ FileList::open(bool hashing, int flags) {
+     manager->file_manager()->close_files(*this);
+ 
+     if (current_file == nullptr) {
+-      LT_LOG_FL(ERROR, "Failed to prepare file list: %s", e.what());
++      LT_LOG_ERRORS("failed to prepare file list : %s", e.what());
+     } else {
+-      LT_LOG_FL(ERROR, "Failed to prepare file '%s': %s", current_file->path()->as_string().c_str(), e.what());
++      LT_LOG_ERRORS("failed to prepare file : path:%s error:%s", current_file->path()->as_string().c_str(), e.what());
+     }
+ 
+     // Set to false here in case we tried to open the FileList for the
+@@ -494,7 +498,7 @@ FileList::close() {
+   if (!is_open())
+     return;
+ 
+-  LT_LOG_FL(INFO, "Closing.", 0);
++  LT_LOG_EVENTS("close", 0);
+ 
+   for (auto& entry : *this)
+     entry->unset_flags_protected(File::flag_active);
+@@ -512,7 +516,7 @@ FileList::close_all_files() {
+   if (!is_open())
+     return;
+ 
+-  LT_LOG_FL(INFO, "Closing all files.", 0);
++  LT_LOG_EVENTS("close all files", 0);
+ 
+   manager->file_manager()->close_files(*this);
+ }
+@@ -683,7 +687,7 @@ FileList::mark_completed(uint32_t index) {
+   if (bitfield()->size_set() >= bitfield()->size_bits())
+     throw internal_error("FileList::mark_completed(...) bitfield()->size_set() >= bitfield()->size_bits().", data()->hash());
+ 
+-  LT_LOG_FL(DEBUG, "Done chunk: index:%" PRIu32 ".", index);
++  LT_LOG_DEBUG("done chunk : index:%" PRIu32 ".", index);
+ 
+   m_data.mutable_completed_bitfield()->set(index);
+   inc_completed(begin(), index);
+@@ -744,7 +748,7 @@ FileList::update_completed() {
+ // Used for metadata downloads.
+ void
+ FileList::reset_filesize(int64_t size) {
+-  LT_LOG_FL(INFO, "Resetting torrent size: size:%" PRIi64 ".", size);
++  LT_LOG_EVENTS("reset torrent size : size:%" PRIi64 ".", size);
+ 
+   close();
+   m_chunk_size = size;
+diff --git a/src/torrent/data/piece.h b/src/torrent/data/piece.h
+index b0a214ca..6e974644 100644
+--- a/src/torrent/data/piece.h
++++ b/src/torrent/data/piece.h
+@@ -1,41 +1,5 @@
+-// libTorrent - BitTorrent library
+-// Copyright (C) 2005-2011, Jari Sundell
+-//
+-// This program is free software; you can redistribute it and/or modify
+-// it under the terms of the GNU General Public License as published by
+-// the Free Software Foundation; either version 2 of the License, or
+-// (at your option) any later version.
+-// 
+-// This program is distributed in the hope that it will be useful,
+-// but WITHOUT ANY WARRANTY; without even the implied warranty of
+-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-// GNU General Public License for more details.
+-// 
+-// You should have received a copy of the GNU General Public License
+-// along with this program; if not, write to the Free Software
+-// Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+-//
+-// In addition, as a special exception, the copyright holders give
+-// permission to link the code of portions of this program with the
+-// OpenSSL library under certain conditions as described in each
+-// individual source file, and distribute linked combinations
+-// including the two.
+-//
+-// You must obey the GNU General Public License in all respects for
+-// all of the code used other than OpenSSL.  If you modify file(s)
+-// with this exception, you may extend this exception to your version
+-// of the file(s), but you are not obligated to do so.  If you do not
+-// wish to do so, delete this exception statement from your version.
+-// If you delete this exception statement from all source files in the
+-// program, then also delete it here.
+-//
+-// Contact:  Jari Sundell <jaris@ifi.uio.no>
+-//
+-//           Skomakerveien 33
+-//           3185 Skoppum, NORWAY
+-
+-#ifndef LIBTORRENT_PIECE_H
+-#define LIBTORRENT_PIECE_H
++#ifndef LIBTORRENT_TORRENT_DATA_PIECE_H
++#define LIBTORRENT_TORRENT_DATA_PIECE_H
+ 
+ #include <torrent/common.h>
+ 
+@@ -75,4 +39,11 @@ private:
+ 
+ } // namespace torrent
+ 
++template<>
++struct std::hash<torrent::Piece> {
++  std::size_t operator()(const torrent::Piece& s) const noexcept {
++    return std::hash<uint32_t>{}(s.index()) ^ (std::hash<uint32_t>{}(s.offset()) << 1) ^ (std::hash<uint32_t>{}(s.length()) << 2);
++  }
++};
++
+ #endif
+diff --git a/src/torrent/download.cc b/src/torrent/download.cc
+index 5d6e5e69..50c760f4 100644
+--- a/src/torrent/download.cc
++++ b/src/torrent/download.cc
+@@ -25,8 +25,8 @@
+ #include "object.h"
+ #include "throttle.h"
+ 
+-#define LT_LOG_THIS(log_level, log_fmt, ...)                         \
+-  lt_log_print_info(LOG_TORRENT_##log_level, m_ptr->info(), "download", log_fmt, __VA_ARGS__);
++#define LT_LOG_EVENTS(log_fmt, ...)                                     \
++  lt_log_print_hash(LOG_TORRENT_EVENTS, m_ptr->info()->hash(), "download : " log_fmt, __VA_ARGS__);
+ 
+ namespace torrent {
+ 
+@@ -38,7 +38,7 @@ Download::open(int flags) {
+   if (m_ptr->info()->is_open())
+     return;
+ 
+-  LT_LOG_THIS(INFO, "Opening torrent: flags:%0x.", flags);
++  LT_LOG_EVENTS("opening : flags:%0x.", flags);
+ 
+   // Currently always open with no_create, as start will make sure
+   // they are created. Need to fix this.
+@@ -70,7 +70,8 @@ Download::close(int flags) {
+   if (m_ptr->info()->is_active())
+     stop(0);
+ 
+-  LT_LOG_THIS(INFO, "Closing torrent: flags:%0x.", flags);
++  LT_LOG_EVENTS("closing : flags:%0x.", flags);
++
+   m_ptr->close();
+ }
+ 
+@@ -90,7 +91,7 @@ Download::start(int flags) {
+   if (info->is_active())
+     return;
+ 
+-  LT_LOG_THIS(INFO, "Starting torrent: flags:%0x.", flags);
++  LT_LOG_EVENTS("starting : flags:%0x.", flags);
+ 
+   m_ptr->data()->verify_wanted_chunks("Download::start(...)");
+ 
+@@ -126,7 +127,7 @@ Download::stop(int flags) {
+   if (!m_ptr->info()->is_active())
+     return;
+ 
+-  LT_LOG_THIS(INFO, "Stopping torrent: flags:%0x.", flags);
++  LT_LOG_EVENTS("stopping : flags:%0x.", flags);
+ 
+   m_ptr->main()->stop();
+ 
+@@ -157,7 +158,7 @@ Download::hash_check(bool try_quick) {
+ 
+   Bitfield* bitfield = m_ptr->data()->mutable_completed_bitfield();
+ 
+-  LT_LOG_THIS(INFO, "Checking hash: allocated:%i try_quick:%i.", !bitfield->empty(), (int)try_quick);
++  LT_LOG_EVENTS("checking hash : allocated:%i try_quick:%i.", !bitfield->empty(), (int)try_quick);
+ 
+   if (bitfield->empty()) {
+     // The bitfield still hasn't been allocated, so no resume data was
+@@ -187,7 +188,7 @@ Download::hash_stop() {
+   if (!m_ptr->hash_checker()->is_checking())
+     return;
+ 
+-  LT_LOG_THIS(INFO, "Hashing stopped.", 0);
++  LT_LOG_EVENTS("hashing stopped", 0);
+ 
+   m_ptr->hash_checker()->hashing_ranges().erase(0, m_ptr->hash_checker()->position());
+   m_ptr->hash_queue()->remove(m_ptr->data());
+diff --git a/src/torrent/download/choke_queue.cc b/src/torrent/download/choke_queue.cc
+index 967e3c00..792ad80e 100644
+--- a/src/torrent/download/choke_queue.cc
++++ b/src/torrent/download/choke_queue.cc
+@@ -12,9 +12,8 @@
+ #include "torrent/peer/choke_status.h"
+ #include "torrent/utils/log.h"
+ 
+-// TODO: Add a different logging category.
+-#define LT_LOG_THIS(log_fmt, ...)                                       \
+-  lt_log_print_subsystem(LOG_TORRENT_INFO, "choke_queue", log_fmt, __VA_ARGS__);
++#define LT_LOG_DEBUG(log_fmt, ...)                          \
++  lt_log_print(LOG_TORRENT_DEBUG, "choke_queue : " log_fmt, __VA_ARGS__);
+ 
+ namespace torrent {
+ 
+@@ -161,10 +160,8 @@ choke_queue::balance() {
+   if (!m_slotCanUnchoke)
+     return;
+ 
+-  LT_LOG_THIS("balancing queue: heuristics:%i currently_unchoked:%" PRIu32 " max_unchoked:%" PRIu32,
+-              m_heuristics,
+-              m_currently_unchoked,
+-              m_maxUnchoked);
++  LT_LOG_DEBUG("balancing : heuristics:%i currently_unchoked:%" PRIu32 " max_unchoked:%" PRIu32,
++              m_heuristics, m_currently_unchoked, m_maxUnchoked);
+ 
+   // Return if no balancing is needed. Don't return if is_unlimited()
+   // as we might have just changed the value and have interested that
+@@ -215,7 +212,7 @@ choke_queue::balance() {
+   if (result != 0)
+     m_slotUnchoke(result);
+ 
+-  LT_LOG_THIS("balanced queue: adjust:%i can_unchoke:%i queued:%zu unchoked:%zu result:%i",
++  LT_LOG_DEBUG("balanced : adjust:%i can_unchoke:%i queued:%zu unchoked:%zu result:%i",
+                adjust, can_unchoke, queued.size(), unchoked.size(), result);
+ }
+ 
+@@ -263,7 +260,7 @@ choke_queue::cycle(uint32_t quota) {
+   quota = std::min(quota, m_maxUnchoked);
+   quota = quota - std::min(quota, gs.now_unchoked);
+ 
+-  uint32_t adjust = (unchoked.size() < quota) ? (quota - unchoked.size()) : 0; 
++  uint32_t adjust = (unchoked.size() < quota) ? (quota - unchoked.size()) : 0;
+   adjust = std::max(adjust, alternate);
+   adjust = std::min(adjust, quota);
+ 
+@@ -468,7 +465,7 @@ choke_manager_allocate_slots(choke_queue::iterator first, choke_queue::iterator
+ 
+       if (weights[itr] == 0 || target[itr].first >= s)
+         continue;
+-      
++
+       uint32_t u = std::min(s - target[itr].first, base * weights[itr]);
+ 
+       unchoke -= u;
+@@ -557,7 +554,7 @@ choke_queue::adjust_choke_range(iterator first, iterator last,
+ 
+     if ((itr - 1)->first > order_size)
+       throw internal_error("choke_queue::adjust_choke_range(...) itr->first > std::distance((itr - 1)->second, itr->second).");
+-    
++
+     (itr - 1)->first += std::min(skipped, order_remaining);
+     skipped          -= std::min(skipped, order_remaining);
+ 
+@@ -592,7 +589,7 @@ choke_queue::adjust_choke_range(iterator first, iterator last,
+ 
+       lt_log_print(LOG_INSTRUMENTATION_CHOKE,
+                    "%p %i %s %p %X %llu %llu",
+-                   this, 
++                   this,
+                    0, //lf->last_update(),
+                    (const char*)"unchoke" + 2*is_choke,
+                    itr_adjust->connection,
+diff --git a/src/torrent/download/choke_queue.h b/src/torrent/download/choke_queue.h
+index 294a63f6..2e384fd6 100644
+--- a/src/torrent/download/choke_queue.h
++++ b/src/torrent/download/choke_queue.h
+@@ -1,5 +1,5 @@
+-#ifndef LIBTORRENT_DOWNLOAD_CHOKE_QUEUE_H
+-#define LIBTORRENT_DOWNLOAD_CHOKE_QUEUE_H
++#ifndef LIBTORRENT_TORRENT_DOWNLOAD_CHOKE_QUEUE_H
++#define LIBTORRENT_TORRENT_DOWNLOAD_CHOKE_QUEUE_H
+ 
+ #include <cinttypes>
+ #include <functional>
+diff --git a/src/torrent/download/resource_manager.cc b/src/torrent/download/resource_manager.cc
+index 7d2107fc..2a3dd099 100644
+--- a/src/torrent/download/resource_manager.cc
++++ b/src/torrent/download/resource_manager.cc
+@@ -16,10 +16,11 @@
+ #include "choke_queue.h"
+ #include "resource_manager.h"
+ 
+-#define LT_LOG_THIS(log_fmt, ...)                                       \
+-  lt_log_print_subsystem(LOG_TORRENT_INFO, "resource_manager", log_fmt, __VA_ARGS__);
+-#define LT_LOG_ITR(log_fmt, ...)                                        \
+-  lt_log_print_info(LOG_TORRENT_INFO, itr->download()->info(), "resource_manager", log_fmt, __VA_ARGS__);
++#define LT_LOG_DEBUG(log_fmt, ...)                                       \
++  lt_log_print(LOG_TORRENT_DEBUG, "resource_manager : " log_fmt, __VA_ARGS__);
++
++#define LT_LOG_DEBUG_ITR(log_fmt, ...)                                  \
++  lt_log_print_hash(LOG_TORRENT_DEBUG, itr->download()->info()->hash(), "resource_manager : " log_fmt, __VA_ARGS__);
+ 
+ namespace torrent {
+ 
+@@ -191,7 +192,7 @@ ResourceManager::group_index_of(const std::string& name) {
+ 
+ void
+ ResourceManager::set_priority(iterator itr, uint16_t pri) {
+-  LT_LOG_ITR("set priority: %" PRIu16, 0);
++  LT_LOG_DEBUG_ITR("set priority : %" PRIu16, 0);
+ 
+   itr->set_priority(pri);
+ }
+@@ -251,7 +252,7 @@ ResourceManager::set_max_download_unchoked(unsigned int m) {
+ // possibly multiple calls of this function.
+ void
+ ResourceManager::receive_upload_unchoke(int num) {
+-  LT_LOG_THIS("adjusting upload unchoked slots; current:%u adjusted:%i", m_currentlyUploadUnchoked, num);
++  LT_LOG_DEBUG("adjusting upload unchoked : current:%u adjusted:%i", m_currentlyUploadUnchoked, num);
+ 
+   if (static_cast<int>(m_currentlyUploadUnchoked) + num < 0)
+     throw internal_error("ResourceManager::receive_upload_unchoke(...) received an invalid value.");
+@@ -261,7 +262,7 @@ ResourceManager::receive_upload_unchoke(int num) {
+ 
+ void
+ ResourceManager::receive_download_unchoke(int num) {
+-  LT_LOG_THIS("adjusting download unchoked slots; current:%u adjusted:%i", m_currentlyDownloadUnchoked, num);
++  LT_LOG_DEBUG("adjusting download unchoked : current:%u adjusted:%i", m_currentlyDownloadUnchoked, num);
+ 
+   if (static_cast<int>(m_currentlyDownloadUnchoked) + num < 0)
+     throw internal_error("ResourceManager::receive_download_unchoke(...) received an invalid value.");
+@@ -355,11 +356,11 @@ ResourceManager::balance_unchoked(unsigned int weight, unsigned int max_unchoked
+   if (is_up) {
+     std::sort(choke_groups.begin(), choke_groups.end(), [](auto lhs, auto rhs) { return lhs->up_requested() < rhs->up_requested(); });
+ 
+-    LT_LOG_THIS("balancing upload unchoked slots; current_unchoked:%u change:%i max_unchoked:%u", m_currentlyUploadUnchoked, change, max_unchoked);
++    LT_LOG_DEBUG("balancing upload unchoked : current_unchoked:%u change:%i max_unchoked:%u", m_currentlyUploadUnchoked, change, max_unchoked);
+   } else {
+     std::sort(choke_groups.begin(), choke_groups.end(), [](auto lhs, auto rhs) { return lhs->down_requested() < rhs->down_requested(); });
+ 
+-    LT_LOG_THIS("balancing download unchoked slots; current_unchoked:%u change:%i max_unchoked:%u", m_currentlyDownloadUnchoked, change, max_unchoked);
++    LT_LOG_DEBUG("balancing download unchoked : current_unchoked:%u change:%i max_unchoked:%u", m_currentlyDownloadUnchoked, change, max_unchoked);
+   }
+ 
+   for (const auto& group : choke_groups) {
+diff --git a/src/torrent/net/connection_state.cc b/src/torrent/net/connection_state.cc
+index 854f7919..ee739c06 100644
+--- a/src/torrent/net/connection_state.cc
++++ b/src/torrent/net/connection_state.cc
+@@ -7,7 +7,7 @@
+ #include "torrent/utils/log.h"
+ 
+ // #define LT_LOG_NOTICE(log_fmt, ...)                                     \
+-//   lt_log_print_subsystem(LOG_NOTICE, "net::network_config", log_fmt, __VA_ARGS__);
++//   lt_log_print(LOG_EVENTS, "net::network_config : " log_fmt, __VA_ARGS__);
+ 
+ namespace torrent::net {
+ 
+diff --git a/src/torrent/peer/peer_list.cc b/src/torrent/peer/peer_list.cc
+index d55fd05d..c45686bd 100644
+--- a/src/torrent/peer/peer_list.cc
++++ b/src/torrent/peer/peer_list.cc
+@@ -14,9 +14,9 @@
+ #include "torrent/utils/log.h"
+ 
+ #define LT_LOG_EVENTS(log_fmt, ...)                                     \
+-  lt_log_print_info(LOG_PEER_LIST_EVENTS, m_info, "peer_list", log_fmt, __VA_ARGS__);
++  lt_log_print_info(LOG_PEER_LIST_EVENTS, m_info, "peer_list : " log_fmt, __VA_ARGS__);
+ #define LT_LOG_ADDRESS(log_fmt, ...)                                    \
+-  lt_log_print_info(LOG_PEER_LIST_ADDRESS, m_info, "peer_list", log_fmt, __VA_ARGS__);
++  lt_log_print_info(LOG_PEER_LIST_ADDRESS, m_info, "peer_list : " log_fmt, __VA_ARGS__);
+ 
+ namespace torrent {
+ 
+diff --git a/src/torrent/rate.cc b/src/torrent/rate.cc
+index 1ffc649f..17290a1e 100644
+--- a/src/torrent/rate.cc
++++ b/src/torrent/rate.cc
+@@ -1,39 +1,150 @@
+ #include "config.h"
+ 
+-#include "rate.h"
+-#include "exceptions.h"
++#include "torrent/rate.h"
++
++#include <algorithm>
++#include <cassert>
++
++#include "torrent/exceptions.h"
++#include "torrent/utils/scope.h"
+ 
+ namespace torrent {
+ 
+-inline void
+-Rate::discard_old() const {
+-  while (!m_container.empty() && m_container.back().first < this_thread::cached_seconds().count() - m_span) {
+-    m_current -= m_container.back().second;
+-    m_container.pop_back();
++Rate::Rate(timer_type span) :
++  Rate(span, 3, 3, span / 3) {
++}
++
++Rate::Rate(timer_type span, timer_type startup_span) :
++  Rate(span, startup_span, 3, span / 3) {
++}
++
++Rate::Rate(timer_type span, timer_type startup_span, timer_type min_active_seconds, timer_type idle_timeout) :
++  m_span(span),
++  m_startup_span(startup_span),
++  m_min_active_seconds(min_active_seconds),
++  m_idle_timeout(idle_timeout),
++
++  m_buckets(m_span, 0) {
++
++  assert(m_span > 0);
++  assert(m_startup_span > 0);
++  assert(m_min_active_seconds > 0);
++  assert(m_idle_timeout > 0);
++
++  assert(m_startup_span <= m_span);
++  assert(m_min_active_seconds <= m_span);
++  assert(m_idle_timeout <= m_span);
++}
++
++void
++Rate::clear_rate() const {
++  if (m_current != 0)
++    std::fill(m_buckets.begin(), m_buckets.end(), 0);
++
++  m_current      = 0;
++  m_start_insert = 0;
++  m_last_insert  = 0;
++  m_last_query   = 0;
++}
++
++void
++Rate::advance_to(timer_type now) const {
++  if (now == 0)
++    throw internal_error("Rate::advance_to(now) called with now==0.");
++
++  utils::scope_exit guard([this, now]() { m_last_query = now; });
++
++  if (m_last_query == 0) {
++    assert(m_current == 0);
++    assert(m_start_insert == 0);
++    return;
++  }
++
++  if (now < m_last_query) {
++    clear_rate();
++    return;
++  }
++
++  if (m_last_insert != 0 && now - m_last_insert > m_idle_timeout) {
++    clear_rate();
++    return;
++  }
++
++  const auto elapsed = now - m_last_query;
++
++  if (elapsed == 0)
++    return;
++
++  if (elapsed >= m_span) {
++    clear_rate();
++    return;
++  }
++
++  for (timer_type offset = 1; offset <= elapsed; ++offset) {
++    auto& bucket = m_buckets[bucket_index(m_last_query + offset)];
++
++    m_current -= bucket;
++    bucket = 0;
++  }
++
++  if (m_current == 0) {
++    m_start_insert = 0;
++    m_last_insert  = 0;
+   }
+ }
+ 
+ Rate::rate_type
+ Rate::rate() const {
+-  discard_old();
++  // We don't care about overflow as it is far in the future.
++  timer_type now = this_thread::cached_seconds().count();
++
++  advance_to(now);
++
++  if (m_current == 0)
++    return 0;
+ 
+-  return m_current / m_span;
++  assert(now >= m_start_insert);
++
++  auto active_seconds = (now - m_start_insert) + 1;
++  auto divisor        = std::max(m_min_active_seconds, std::min(m_span, active_seconds));
++
++  return m_current / divisor;
+ }
+ 
+ void
+ Rate::insert(rate_type bytes) {
+-  discard_old();
++  timer_type now = this_thread::cached_seconds().count();
++
++  advance_to(now);
++
++  if (bytes == 0)
++    return;
+ 
+   if (m_current > (rate_type{1} << 40) || bytes > (rate_type{1} << 28))
+     throw internal_error("Rate::insert(bytes) received out-of-bounds values..");
+ 
+-  if (m_container.empty() || m_container.front().first != this_thread::cached_seconds().count())
+-    m_container.emplace_front(this_thread::cached_seconds().count(), bytes);
+-  else
+-    m_container.front().second += bytes;
++  // A long pause starts a fresh active period so idle time and old samples cannot dilute the rate
++  // after activity resumes.
++  if (m_last_insert != 0 && now - m_last_insert > m_startup_span) {
++    clear_rate();
++    advance_to(now);
++  }
++
++  if (m_start_insert == 0)
++    m_start_insert = now;
+ 
+-  m_total += bytes;
++  auto& bucket = m_buckets[bucket_index(now)];
++
++  bucket    += bytes;
+   m_current += bytes;
++  m_total   += bytes;
++
++  m_last_insert = now;
++}
++
++void
++Rate::reset_rate() {
++  clear_rate();
+ }
+ 
+ } // namespace torrent
+diff --git a/src/torrent/rate.h b/src/torrent/rate.h
+index 9715d226..9f13eaab 100644
+--- a/src/torrent/rate.h
++++ b/src/torrent/rate.h
+@@ -1,97 +1,67 @@
+-// libTorrent - BitTorrent library
+-// Copyright (C) 2005-2011, Jari Sundell
+-//
+-// This program is free software; you can redistribute it and/or modify
+-// it under the terms of the GNU General Public License as published by
+-// the Free Software Foundation; either version 2 of the License, or
+-// (at your option) any later version.
+-// 
+-// This program is distributed in the hope that it will be useful,
+-// but WITHOUT ANY WARRANTY; without even the implied warranty of
+-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-// GNU General Public License for more details.
+-// 
+-// You should have received a copy of the GNU General Public License
+-// along with this program; if not, write to the Free Software
+-// Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+-//
+-// In addition, as a special exception, the copyright holders give
+-// permission to link the code of portions of this program with the
+-// OpenSSL library under certain conditions as described in each
+-// individual source file, and distribute linked combinations
+-// including the two.
+-//
+-// You must obey the GNU General Public License in all respects for
+-// all of the code used other than OpenSSL.  If you modify file(s)
+-// with this exception, you may extend this exception to your version
+-// of the file(s), but you are not obligated to do so.  If you do not
+-// wish to do so, delete this exception statement from your version.
+-// If you delete this exception statement from all source files in the
+-// program, then also delete it here.
+-//
+-// Contact:  Jari Sundell <jaris@ifi.uio.no>
+-//
+-//           Skomakerveien 33
+-//           3185 Skoppum, NORWAY
+-
+ #ifndef LIBTORRENT_UTILS_RATE_H
+ #define LIBTORRENT_UTILS_RATE_H
+ 
+-#include <deque>
++#include <vector>
+ #include <torrent/common.h>
+ 
+ namespace torrent {
+ 
+-// Keep the current rate count up to date for each call to rate() and
+-// insert(...). This requires a mutable since rate() can be const, but
+-// is justified as we avoid iterating the deque for each call.
++// TODO: Convert to template with std::array.
+ 
+ class LIBTORRENT_EXPORT Rate {
+ public:
+-  using timer_type = int32_t;
++  using timer_type = uint32_t;
+   using rate_type  = uint64_t;
+   using total_type = uint64_t;
+ 
+-  using value_type = std::pair<timer_type, rate_type>;
+-  using queue_type = std::deque<value_type>;
+-
+-  Rate(timer_type span) :  m_span(span) {}
++  Rate(timer_type span);
++  Rate(timer_type span, timer_type startup_span);
++  Rate(timer_type span, timer_type startup_span, timer_type min_active_seconds, timer_type idle_timeout);
+ 
++  // The divisor grows from min_active_seconds after the first insert, up to span().
++  // Inserts separated by startup_span() or more seconds restart that count;
++  // shorter pauses remain in the active period.
+   // Bytes per second.
+   rate_type           rate() const;
+ 
+-  // Total bytes transfered.
+-  total_type          total() const                           { return m_total; }
+-  void                set_total(total_type bytes)             { m_total = bytes; }
++  total_type          total() const;
++  void                set_total(total_type bytes);
+ 
+-  // Interval in seconds used to calculate the rate.
+-  timer_type          span() const                            { return m_span; }
+-  void                set_span(timer_type s)                  { m_span = s; }
++  timer_type          span() const;
++  timer_type          startup_span() const;
+ 
+   void                insert(rate_type bytes);
+-
+-  void                reset_rate()                            { m_current = 0; m_container.clear(); }
+-  
+-  bool                operator <  (Rate& r) const             { return rate() < r.rate(); }
+-  bool                operator >  (Rate& r) const             { return rate() > r.rate(); }
+-  bool                operator == (Rate& r) const             { return rate() == r.rate(); }
+-  bool                operator != (Rate& r) const             { return rate() != r.rate(); }
+-
+-  bool                operator <  (rate_type r) const         { return rate() < r; }
+-  bool                operator >  (rate_type r) const         { return rate() > r; }
+-  bool                operator == (rate_type r) const         { return rate() == r; }
+-  bool                operator != (rate_type r) const         { return rate() != r; }
++  void                reset_rate();
+ 
+ private:
+-  inline void         discard_old() const;
++  // TODO: Remove mutable after merge.
++
++  void                advance_to(timer_type now) const;
++  void                clear_rate() const;
+ 
+-  mutable queue_type  m_container;
++  uint32_t            bucket_index(timer_type second) const;
+ 
+-  mutable rate_type   m_current{0};
+-  total_type          m_total{0};
+   timer_type          m_span;
++  timer_type          m_startup_span;
++  timer_type          m_min_active_seconds;
++  timer_type          m_idle_timeout;
++
++  mutable std::vector<rate_type> m_buckets;
++
++  mutable rate_type   m_current{};
++  total_type          m_total{};
++
++  mutable timer_type  m_start_insert{};
++  mutable timer_type  m_last_insert{};
++  mutable timer_type  m_last_query{};
+ };
+ 
++inline Rate::total_type Rate::total() const                         { return m_total; }
++inline void             Rate::set_total(total_type bytes)           { m_total = bytes; }
++inline Rate::timer_type Rate::span() const                          { return m_span; }
++inline Rate::timer_type Rate::startup_span() const                  { return m_startup_span; }
++inline uint32_t         Rate::bucket_index(timer_type second) const { return second % m_buckets.size(); }
++
+ } // namespace torrent
+ 
+ #endif
+diff --git a/src/torrent/runtime/network_config.cc b/src/torrent/runtime/network_config.cc
+index 61982be0..3f682abe 100644
+--- a/src/torrent/runtime/network_config.cc
++++ b/src/torrent/runtime/network_config.cc
+@@ -10,8 +10,8 @@
+ 
+ // TODO: Add runtime category and add it to important/complete log outputs.
+ 
+-#define LT_LOG_NOTICE(log_fmt, ...)                                     \
+-  lt_log_print_subsystem(LOG_NOTICE, "runtime::network_config", log_fmt, __VA_ARGS__);
++#define LT_LOG_EVENT(log_fmt, ...)                                     \
++  lt_log_print(LOG_EVENTS, "runtime::network_config : " log_fmt, __VA_ARGS__);
+ 
+ namespace torrent::runtime {
+ 
+@@ -688,7 +688,7 @@ NetworkConfig::set_generic_address_unsafe(const char* category, c_sa_shared_ptr&
+   if (sa_port(sa) != 0)
+     throw input_error("Tried to set a " + std::string(category) + " address with a non-zero port.");
+ 
+-  LT_LOG_NOTICE("%s address : %s", category, sa_pretty_str(sa).c_str());
++  LT_LOG_EVENT("%s address : %s", category, sa_pretty_str(sa).c_str());
+ 
+   switch (sa->sa_family) {
+   case AF_UNSPEC:
+@@ -718,7 +718,7 @@ NetworkConfig::set_generic_inet_address_unsafe(const char* category, c_sa_shared
+   if (sa_port(sa) != 0)
+     throw input_error("Tried to set a " + std::string(category) + " inet address with a non-zero port.");
+ 
+-  LT_LOG_NOTICE("%s inet address : %s", category, sa_pretty_str(sa).c_str());
++  LT_LOG_EVENT("%s inet address : %s", category, sa_pretty_str(sa).c_str());
+ 
+   inet_address = sa_copy(sa);
+ }
+@@ -731,7 +731,7 @@ NetworkConfig::set_generic_inet6_address_unsafe(const char* category, c_sa_share
+   if (sa_port(sa) != 0)
+     throw input_error("Tried to set a " + std::string(category) + " inet6 address with a non-zero port.");
+ 
+-  LT_LOG_NOTICE("%s inet6 address : %s", category, sa_pretty_str(sa).c_str());
++  LT_LOG_EVENT("%s inet6 address : %s", category, sa_pretty_str(sa).c_str());
+ 
+   inet6_address = sa_copy(sa);
+ }
+diff --git a/src/torrent/runtime/network_manager.cc b/src/torrent/runtime/network_manager.cc
+index a938eba2..d67e3ede 100644
+--- a/src/torrent/runtime/network_manager.cc
++++ b/src/torrent/runtime/network_manager.cc
+@@ -15,8 +15,8 @@
+ 
+ // TODO: Add runtime category and add it to important/complete log outputs.
+ 
+-#define LT_LOG_NOTICE(log_fmt, ...)                                     \
+-  lt_log_print_subsystem(LOG_NOTICE, "runtime::network_manager", log_fmt, __VA_ARGS__);
++#define LT_LOG_ERROR(log_fmt, ...)                                     \
++  lt_log_print(LOG_ERRORS, "runtime::network_manager : " log_fmt, __VA_ARGS__);
+ 
+ namespace torrent::runtime {
+ 
+@@ -135,7 +135,7 @@ NetworkManager::dht_restart() {
+     runtime::network_manager()->dht_controller()->start();
+ 
+   } catch (const base_error& e) {
+-    LT_LOG_NOTICE("Could not restart DHT server: %" PRIu16 " : %s", dht_port(), e.what());
++    LT_LOG_ERROR("Could not restart DHT server: %" PRIu16 " : %s", dht_port(), e.what());
+     return;
+   }
+ }
+@@ -267,7 +267,7 @@ NetworkManager::listen_restart_unsafe() {
+     listen_open_unsafe(m_listen_port, m_listen_port);
+ 
+   } catch (const base_error& e) {
+-    LT_LOG_NOTICE("Could not restart listen socket: %" PRIu16 " : %s", m_listen_port, e.what());
++    LT_LOG_ERROR("Could not restart listen socket: %" PRIu16 " : %s", m_listen_port, e.what());
+     return;
+   }
+ }
+diff --git a/src/torrent/tracker/dht_controller.cc b/src/torrent/tracker/dht_controller.cc
+index d00dd567..dadf2ead 100644
+--- a/src/torrent/tracker/dht_controller.cc
++++ b/src/torrent/tracker/dht_controller.cc
+@@ -12,7 +12,7 @@
+ #include "torrent/utils/log.h"
+ 
+ #define LT_LOG(log_fmt, ...)                                            \
+-  lt_log_print_subsystem(torrent::LOG_DHT_CONTROLLER, "dht_controller", log_fmt, __VA_ARGS__);
++  lt_log_print(LOG_DHT_CONTROLLER, "dht_controller : " log_fmt, __VA_ARGS__);
+ 
+ namespace torrent::tracker {
+ 
+diff --git a/src/torrent/tracker/manager.cc b/src/torrent/tracker/manager.cc
+index f9c9aab6..626a56e2 100644
+--- a/src/torrent/tracker/manager.cc
++++ b/src/torrent/tracker/manager.cc
+@@ -16,7 +16,7 @@
+ #include "tracker/tracker_worker.h"
+ 
+ #define LT_LOG_TRACKER_EVENTS(log_fmt, ...)                             \
+-  lt_log_print_subsystem(LOG_TRACKER_EVENTS, "tracker-manager", log_fmt, __VA_ARGS__);
++  lt_log_print(LOG_TRACKER_EVENTS, "tracker-manager : " log_fmt, __VA_ARGS__);
+ 
+ // TODO: Add leak check for trackers that are requesting when deleted, yet never got moved to delete
+ // queue.
+diff --git a/src/torrent/utils/linked_unordered_set.h b/src/torrent/utils/linked_unordered_set.h
+new file mode 100644
+index 00000000..09a805c9
+--- /dev/null
++++ b/src/torrent/utils/linked_unordered_set.h
+@@ -0,0 +1,173 @@
++#ifndef LIBTORRENT_TORRENT_UTILS_LINKED_UNORDERED_SET_H
++#define LIBTORRENT_TORRENT_UTILS_LINKED_UNORDERED_SET_H
++
++#include <cstddef>
++#include <unordered_map>
++#include <utility>
++
++namespace torrent::utils {
++
++template <typename Key>
++struct linked_list_node {
++  using value_type = std::pair<const Key, linked_list_node>;
++
++  value_type* prev{};
++  value_type* next{};
++};
++
++template <typename Key>
++class linked_unordered_set {
++public:
++  linked_unordered_set() = default;
++  ~linked_unordered_set() = default;
++
++  bool                empty() const;
++  size_t              size() const;
++
++  const Key&          front() const;
++
++  void                clear();
++
++  bool                insert_back(const Key& key);
++
++  Key                 pop_front();
++
++  bool                erase(const Key& key);
++
++private:
++  linked_unordered_set(const linked_unordered_set&) = delete;
++  linked_unordered_set& operator=(const linked_unordered_set&) = delete;
++
++  using node_type  = linked_list_node<Key>;
++  using map_type   = std::unordered_map<Key, node_type>;
++  using value_type = typename map_type::value_type;
++
++  void                link_back(value_type* entry);
++  void                unlink(value_type* entry);
++
++  void                try_rebalance_after_erase();
++
++  map_type            m_lookup_map;
++
++  value_type*         m_head{};
++  value_type*         m_tail{};
++
++  unsigned int        m_under_threshold_count{};
++};
++
++template <typename Key> inline bool       linked_unordered_set<Key>::empty() const { return m_lookup_map.empty(); }
++template <typename Key> inline size_t     linked_unordered_set<Key>::size() const  { return m_lookup_map.size(); }
++template <typename Key> inline const Key& linked_unordered_set<Key>::front() const { return m_head->first; }
++
++template <typename Key>
++inline void
++linked_unordered_set<Key>::clear() {
++  m_lookup_map.clear();
++
++  m_head = nullptr;
++  m_tail = nullptr;
++
++  m_under_threshold_count = 0;
++}
++
++template <typename Key>
++inline bool
++linked_unordered_set<Key>::insert_back(const Key& key) {
++  auto [itr, inserted] = m_lookup_map.try_emplace(key);
++
++  if (!inserted)
++    return false;
++
++  link_back(&*itr);
++
++  return true;
++}
++
++template <typename Key>
++inline Key
++linked_unordered_set<Key>::pop_front() {
++  Key front_key = m_head->first;
++
++  unlink(m_head);
++  m_lookup_map.erase(front_key);
++
++  try_rebalance_after_erase();
++
++  return front_key;
++}
++
++template <typename Key>
++inline bool
++linked_unordered_set<Key>::erase(const Key& key) {
++  auto itr = m_lookup_map.find(key);
++
++  if (itr == m_lookup_map.end())
++    return false;
++
++  unlink(&*itr);
++  m_lookup_map.erase(itr);
++
++  try_rebalance_after_erase();
++
++  return true;
++}
++
++template <typename Key>
++inline void
++linked_unordered_set<Key>::link_back(value_type* entry) {
++  entry->second.prev = m_tail;
++  entry->second.next = nullptr;
++
++  if (m_tail != nullptr)
++    m_tail->second.next = entry;
++  else
++    m_head = entry;
++
++  m_tail = entry;
++}
++
++template <typename Key>
++inline void
++linked_unordered_set<Key>::unlink(value_type* entry) {
++  if (entry->second.prev != nullptr)
++    entry->second.prev->second.next = entry->second.next;
++  else
++    m_head = entry->second.next;
++
++  if (entry->second.next != nullptr)
++    entry->second.next->second.prev = entry->second.prev;
++  else
++    m_tail = entry->second.prev;
++}
++
++// Rebalance the underlying set if we have been under a certain threshold for a number of operations.
++template <typename Key>
++inline void
++linked_unordered_set<Key>::try_rebalance_after_erase() {
++  // Bucket sizes are primes, but 32 is a good threshold to start rebalancing at.
++  if (m_lookup_map.bucket_count() < 32)
++    return;
++
++  if (m_lookup_map.size() == 0) {
++    m_lookup_map            = map_type{};
++    m_under_threshold_count = 0;
++    return;
++  }
++
++  if (m_lookup_map.size() > m_lookup_map.bucket_count() / 4) {
++    m_under_threshold_count = 0;
++    return;
++  }
++
++  m_under_threshold_count++;
++
++  if (m_under_threshold_count < m_lookup_map.bucket_count() / 6)
++    return;
++
++  m_lookup_map.reserve(m_lookup_map.size() * 2);
++  m_under_threshold_count = 0;
++}
++
++} // namespace torrent::utils
++
++#endif
+diff --git a/src/torrent/utils/log.cc b/src/torrent/utils/log.cc
+index dfe61238..438def5c 100644
+--- a/src/torrent/utils/log.cc
++++ b/src/torrent/utils/log.cc
+@@ -60,8 +60,6 @@ static log_cache_list  log_cache;
+ static log_child_list  log_children;
+ static std::mutex      log_mutex;
+ 
+-static const char log_level_char[] = { 'C', 'E', 'W', 'N', 'I', 'D' };
+-
+ // Removing logs always triggers a check if we got any un-used
+ // log_output objects.
+ 
+@@ -142,25 +140,25 @@ log_group::internal_print(const std::string& message) {
+ }
+ 
+ void
+-log_group::internal_print(const HashString* hash, const char* subsystem, const void* dump_data, size_t dump_size, const char* fmt, ...) {
++log_group::internal_print(const HashString* hash, const char* fmt, ...) {
+   va_list ap;
+   const unsigned int buffer_size = 4096;
+ 
+   char buffer[buffer_size];
+   char* first = buffer;
+ 
+-  if (subsystem != NULL) {
+-    if (hash != NULL) {
+-      first = utils::transform_to_hex(*hash, first, first + 40);
+-      first += snprintf(first, 4096 - (first - buffer), "->%s: ", subsystem);
+-    } else {
+-      first += snprintf(first, 4096 - (first - buffer), "%s: ", subsystem);
+-    }
++  if (hash != NULL) {
++    first = utils::transform_to_hex(*hash, first, first + 40);
++    *(first++) = ' ';
++    *(first++) = ':';
++    *(first++) = ' ';
+   }
+ 
+   va_start(ap, fmt);
+-  int count = vsnprintf(first, 4096 - (first - buffer), fmt, ap);
++
++  int count = std::max(0, vsnprintf(first, 4096 - (first - buffer), fmt, ap));
+   first += std::min<unsigned int>(count, buffer_size - (first - buffer) - 1);
++
+   va_end(ap);
+ 
+   if (count <= 0)
+@@ -169,45 +167,54 @@ log_group::internal_print(const HashString* hash, const char* subsystem, const v
+   auto lock = std::scoped_lock(log_mutex);
+ 
+   std::for_each(m_first, m_last, [this, &buffer, first](const auto& elem) {
+-    return elem(buffer, std::distance(buffer, first), std::distance(log_groups.begin(), this));
+-  });
++      return elem(buffer, std::distance(buffer, first), std::distance(log_groups.begin(), this));
++    });
++}
++
++void
++log_group::internal_dump(const HashString* hash, const void* dump_data, size_t dump_size, const char* fmt, ...) {
++  va_list ap;
++  const unsigned int buffer_size = 4096;
++
++  char buffer[buffer_size];
++  char* first = buffer;
++
++  if (hash != NULL) {
++    first = utils::transform_to_hex(*hash, first, first + 40);
++    *(first++) = ' ';
++    *(first++) = ':';
++    *(first++) = ' ';
++  }
++
++  va_start(ap, fmt);
++
++  int count = std::max(0, vsnprintf(first, 4096 - (first - buffer), fmt, ap));
++  first += std::min<unsigned int>(count, buffer_size - (first - buffer) - 1);
++
++  va_end(ap);
++
++  if (count <= 0)
++    return;
++
++  auto lock = std::scoped_lock(log_mutex);
++
++  std::for_each(m_first, m_last, [this, &buffer, first](const auto& elem) {
++      return elem(buffer, std::distance(buffer, first), std::distance(log_groups.begin(), this));
++    });
++
+   if (dump_data != NULL) {
+     std::for_each(m_first, m_last, [dump_data, dump_size](const auto& log) {
+-      return log(static_cast<const char*>(dump_data), dump_size, -1);
+-    });
++        return log(static_cast<const char*>(dump_data), dump_size, -1);
++      });
+   }
+ }
+ 
+-#define LOG_CASCADE(parent) LOG_CHILDREN_CASCADE(parent, parent)
+ #define LOG_LINK(parent, child) log_children.emplace_back(parent, child)
+ 
+-#define LOG_CHILDREN_CASCADE(parent, subgroup)                          \
+-  log_children.emplace_back(parent + LOG_ERROR,    subgroup + LOG_CRITICAL); \
+-  log_children.emplace_back(parent + LOG_WARN,     subgroup + LOG_ERROR); \
+-  log_children.emplace_back(parent + LOG_NOTICE,   subgroup + LOG_WARN); \
+-  log_children.emplace_back(parent + LOG_INFO,     subgroup + LOG_NOTICE); \
+-  log_children.emplace_back(parent + LOG_DEBUG,    subgroup + LOG_INFO);
+-
+-#define LOG_CHILDREN_SUBGROUP(parent, subgroup)                         \
+-  log_children.emplace_back(parent + LOG_CRITICAL, subgroup + LOG_CRITICAL); \
+-  log_children.emplace_back(parent + LOG_ERROR,    subgroup + LOG_ERROR); \
+-  log_children.emplace_back(parent + LOG_WARN,     subgroup + LOG_WARN);  \
+-  log_children.emplace_back(parent + LOG_NOTICE,   subgroup + LOG_NOTICE); \
+-  log_children.emplace_back(parent + LOG_INFO,     subgroup + LOG_INFO);  \
+-  log_children.emplace_back(parent + LOG_DEBUG,    subgroup + LOG_DEBUG);
+-
+ void
+ log_initialize() {
+   auto lock = std::scoped_lock(log_mutex);
+ 
+-  LOG_CASCADE(LOG_CRITICAL);
+-
+-  LOG_CASCADE(LOG_STORAGE_CRITICAL);
+-  LOG_CASCADE(LOG_TORRENT_CRITICAL);
+-
+-  LOG_CHILDREN_CASCADE(LOG_CRITICAL, LOG_STORAGE_CRITICAL);
+-  LOG_CHILDREN_CASCADE(LOG_CRITICAL, LOG_TORRENT_CRITICAL);
+-
+   LOG_LINK(LOG_CONNECTION, LOG_CONNECTION_BIND);
+   LOG_LINK(LOG_CONNECTION, LOG_CONNECTION_FD);
+   LOG_LINK(LOG_CONNECTION, LOG_CONNECTION_FILTER);
+@@ -344,10 +351,8 @@ log_file_write(const std::unique_ptr<std::ostream>& outfile, const char* data, s
+   // Add group name, data, etc as flags.
+ 
+   // Normal groups are nul-terminated strings.
+-  if (group >= LOG_NON_CASCADING) {
++  if (group >= 0) {
+     *outfile << this_thread::cached_seconds().count() << ' ' << data << '\n';
+-  } else if (group >= 0) {
+-    *outfile << this_thread::cached_seconds().count() << ' ' << log_level_char[group % 6] << ' ' << data << '\n';
+   } else if (group == -1) {
+     *outfile << "---DUMP---" << length << "---" << '\n';
+ 
+@@ -366,10 +371,8 @@ log_gz_file_write(const std::shared_ptr<log_gz_output>& outfile, const char* dat
+ 
+   // Normal groups are nul-terminated strings.
+   if (group >= 0) {
+-    int buffer_length = snprintf(buffer, 64,
+-                                 (group >= LOG_NON_CASCADING) ? ("%" PRIi64 " ") : ("%" PRIi64 " %c "),
+-                                 static_cast<int64_t>(this_thread::cached_seconds().count()),
+-                                 log_level_char[group % 6]);
++    int buffer_length = snprintf(buffer, 64, "%" PRIi64 " ",
++                                 static_cast<int64_t>(this_thread::cached_seconds().count()));
+ 
+     if (buffer_length > 0)
+       gzwrite(outfile->gz_file.get(), buffer, buffer_length);
+diff --git a/src/torrent/utils/log.h b/src/torrent/utils/log.h
+index 91804147..716aec71 100644
+--- a/src/torrent/utils/log.h
++++ b/src/torrent/utils/log.h
+@@ -14,28 +14,9 @@
+ namespace torrent {
+ 
+ enum {
+-  LOG_CRITICAL,
+-  LOG_ERROR,
+-  LOG_WARN,
+-  LOG_NOTICE,
+-  LOG_INFO,
+-  LOG_DEBUG,
+-
+-  LOG_STORAGE_CRITICAL,
+-  LOG_STORAGE_ERROR,
+-  LOG_STORAGE_WARN,
+-  LOG_STORAGE_NOTICE,
+-  LOG_STORAGE_INFO,
+-  LOG_STORAGE_DEBUG,
+-
+-  LOG_TORRENT_CRITICAL,
+-  LOG_TORRENT_ERROR,
+-  LOG_TORRENT_WARN,
+-  LOG_TORRENT_NOTICE,
+-  LOG_TORRENT_INFO,
+-  LOG_TORRENT_DEBUG,
+-
+-  LOG_NON_CASCADING,
++  LOG_ERRORS,
++  LOG_EVENTS,
++  LOG_DEBUG_TRACE,
+ 
+   LOG_CONNECTION,
+   LOG_CONNECTION_BIND,
+@@ -79,12 +60,17 @@ enum {
+   LOG_RPC_DUMP,
+ 
+   LOG_SESSION_EVENTS,
+-  LOG_STORAGE,
++  LOG_STORAGE_DEBUG,
++  LOG_STORAGE_EVENTS,
++  LOG_STORAGE_ERRORS,
+ 
+   LOG_SYSTEM,
+   LOG_SYSTEM_POLL,
+   LOG_SYSTEM_THREAD,
+ 
++  LOG_TORRENT_DEBUG,
++  LOG_TORRENT_EVENTS,
++
+   LOG_TRACKER_DUMP,
+   LOG_TRACKER_EVENTS,
+   LOG_TRACKER_REQUESTS,
+@@ -98,35 +84,31 @@ enum {
+ 
+ #define lt_log_print(log_group, ...)                                    \
+   { if (torrent::log_groups[log_group].valid())                         \
+-      torrent::log_groups[log_group].internal_print(NULL, NULL, NULL, 0, __VA_ARGS__); }
++      torrent::log_groups[log_group].internal_print(NULL, __VA_ARGS__); }
+ 
+-#define lt_log_print_hash(log_group, log_hash, log_subsystem, ...)      \
++#define lt_log_print_hash(log_group, log_hash, ...)                     \
+   { if (torrent::log_groups[log_group].valid())                         \
+-    torrent::log_groups[log_group].internal_print(&log_hash, log_subsystem, NULL, 0, __VA_ARGS__); }
++      torrent::log_groups[log_group].internal_print(&log_hash, __VA_ARGS__); }
+ 
+-#define lt_log_print_info(log_group, log_info, log_subsystem, ...)      \
++#define lt_log_print_info(log_group, log_info, ...)                     \
+   { if (torrent::log_groups[log_group].valid())                         \
+-      torrent::log_groups[log_group].internal_print(&log_info->hash(), log_subsystem, NULL, 0, __VA_ARGS__); }
++      torrent::log_groups[log_group].internal_print(&log_info->hash(), __VA_ARGS__); }
+ 
+-#define lt_log_print_data(log_group, log_data, log_subsystem, ...)      \
++#define lt_log_print_data(log_group, log_data, ...)                     \
+   { if (torrent::log_groups[log_group].valid())                         \
+-      torrent::log_groups[log_group].internal_print(&log_data->hash(), log_subsystem, NULL, 0, __VA_ARGS__); }
++      torrent::log_groups[log_group].internal_print(&log_data->hash(), __VA_ARGS__); }
+ 
+ #define lt_log_print_dump(log_group, log_dump_data, log_dump_size, ...) \
+   { if (torrent::log_groups[log_group].valid())                         \
+-      torrent::log_groups[log_group].internal_print(NULL, NULL, log_dump_data, log_dump_size, __VA_ARGS__); }
+-
+-#define lt_log_print_hash_dump(log_group, log_dump_data, log_dump_size, log_hash, log_subsystem, ...) \
+-  { if (torrent::log_groups[log_group].valid())                         \
+-      torrent::log_groups[log_group].internal_print(&log_hash, log_subsystem, log_dump_data, log_dump_size, __VA_ARGS__); }
++      torrent::log_groups[log_group].internal_dump(NULL, log_dump_data, log_dump_size, __VA_ARGS__); }
+ 
+-#define lt_log_print_info_dump(log_group, log_dump_data, log_dump_size, log_info, log_subsystem, ...) \
++#define lt_log_print_hash_dump(log_group, log_dump_data, log_dump_size, log_hash, ...) \
+   { if (torrent::log_groups[log_group].valid())                         \
+-      torrent::log_groups[log_group].internal_print(&log_info->hash(), log_subsystem, log_dump_data, log_dump_size, __VA_ARGS__); }
++      torrent::log_groups[log_group].internal_dump(&log_hash, log_dump_data, log_dump_size, __VA_ARGS__); }
+ 
+-#define lt_log_print_subsystem(log_group, log_subsystem, ...)           \
++#define lt_log_print_info_dump(log_group, log_dump_data, log_dump_size, log_info, ...) \
+   { if (torrent::log_groups[log_group].valid())                         \
+-      torrent::log_groups[log_group].internal_print(NULL, log_subsystem, NULL, 0, __VA_ARGS__); }
++      torrent::log_groups[log_group].internal_dump(&log_info->hash(), log_dump_data, log_dump_size, __VA_ARGS__); }
+ 
+ using log_slot = std::function<void(const char*, size_t, int)>;
+ 
+@@ -151,9 +133,8 @@ public:
+   //
+ 
+   void                internal_print(const std::string& message);
+-  void                internal_print(const HashString* hash, const char* subsystem,
+-                                     const void* dump_data, size_t dump_size,
+-                                     const char* fmt, ...);
++  void                internal_print(const HashString* hash, const char* fmt, ...);
++  void                internal_dump(const HashString* hash, const void* dump_data, size_t dump_size, const char* fmt, ...);
+ 
+   const outputs_type& outputs() const                    { return m_outputs; }
+   const outputs_type& cached_outputs() const             { return m_cached_outputs; }
+diff --git a/src/torrent/utils/option_strings.cc b/src/torrent/utils/option_strings.cc
+index d9532c8b..8ae18b2a 100644
+--- a/src/torrent/utils/option_strings.cc
++++ b/src/torrent/utils/option_strings.cc
+@@ -113,28 +113,9 @@ constexpr const char* option_list_handshake_connection[] = {
+ };
+ 
+ constexpr const char* option_list_log_group[] = {
+-  "critical",
+-  "error",
+-  "warn",
+-  "notice",
+-  "info",
+-  "debug",
+-
+-  "storage_critical",
+-  "storage_error",
+-  "storage_warn",
+-  "storage_notice",
+-  "storage_info",
+-  "storage_debug",
+-
+-  "torrent_critical",
+-  "torrent_error",
+-  "torrent_warn",
+-  "torrent_notice",
+-  "torrent_info",
+-  "torrent_debug",
+-
+-  "__non_cascading__",
++  "errors",
++  "events",
++  "debug_trace",
+ 
+   "connection",
+   "connection_bind",
+@@ -178,12 +159,17 @@ constexpr const char* option_list_log_group[] = {
+   "rpc_dump",
+ 
+   "session_events",
+-  "storage",
++  "storage_debug",
++  "storage_events",
++  "storage_errors",
+ 
+   "system",
+   "system_poll",
+   "system_thread",
+ 
++  "torrent_debug",
++  "torrent_events",
++
+   "tracker_dump",
+   "tracker_events",
+   "tracker_requests",
+diff --git a/src/torrent/utils/resume.cc b/src/torrent/utils/resume.cc
+index 8be578dd..b04cf003 100644
+--- a/src/torrent/utils/resume.cc
++++ b/src/torrent/utils/resume.cc
+@@ -20,16 +20,16 @@
+ #include "tracker/tracker_list.h"
+ 
+ #define LT_LOG_LOAD(log_fmt, ...)                                       \
+-  lt_log_print_info(LOG_RESUME_DATA, download.info(), "resume_load", log_fmt, __VA_ARGS__);
++  lt_log_print_info(LOG_RESUME_DATA, download.info(), "resume_load : " log_fmt, __VA_ARGS__);
+ #define LT_LOG_LOAD_INVALID(log_fmt, ...)                               \
+-  lt_log_print_info(LOG_RESUME_DATA, download.info(), "resume_load", "invalid resume data: " log_fmt, __VA_ARGS__);
++  lt_log_print_info(LOG_RESUME_DATA, download.info(), "resume_load : invalid resume data: " log_fmt, __VA_ARGS__);
+ #define LT_LOG_LOAD_FILE(log_fmt, ...)                                  \
+-  lt_log_print_info(LOG_RESUME_DATA, download.info(), "resume_load", "file[%u]: " log_fmt, \
++  lt_log_print_info(LOG_RESUME_DATA, download.info(), "resume_load : file[%u]: " log_fmt, \
+                     file_index, __VA_ARGS__);
+ #define LT_LOG_SAVE(log_fmt, ...)                                       \
+-  lt_log_print_info(LOG_RESUME_DATA, download.info(), "resume_save", log_fmt, __VA_ARGS__);
++  lt_log_print_info(LOG_RESUME_DATA, download.info(), "resume_save : " log_fmt, __VA_ARGS__);
+ #define LT_LOG_SAVE_FILE(log_fmt, ...)                                  \
+-  lt_log_print_info(LOG_RESUME_DATA, download.info(), "resume_save", "file[%u]: " log_fmt, \
++  lt_log_print_info(LOG_RESUME_DATA, download.info(), "resume_save : file[%u]: " log_fmt, \
+                     file_index, __VA_ARGS__);
+ 
+ namespace torrent {
+diff --git a/src/torrent/utils/scope.h b/src/torrent/utils/scope.h
+new file mode 100644
+index 00000000..c009238d
+--- /dev/null
++++ b/src/torrent/utils/scope.h
+@@ -0,0 +1,26 @@
++#ifndef LIBTORRENT_TORRENT_UTILS_SCOPE_H
++#define LIBTORRENT_TORRENT_UTILS_SCOPE_H
++
++#include <functional>
++
++namespace torrent::utils {
++
++class scope_exit {
++public:
++  scope_exit(std::function<void()> fn);
++  ~scope_exit();
++
++  void                release();
++
++private:
++  std::function<void()> m_fn;
++};
++
++inline scope_exit::scope_exit(std::function<void()> fn) : m_fn(fn) {}
++inline scope_exit::~scope_exit() { m_fn(); }
++
++inline void scope_exit::release() { m_fn = []() {}; }
++
++} // namespace torrent::utils
++
++#endif
+diff --git a/src/tracker/tracker_controller.cc b/src/tracker/tracker_controller.cc
+index de4fa997..9d76d0f7 100644
+--- a/src/tracker/tracker_controller.cc
++++ b/src/tracker/tracker_controller.cc
+@@ -9,7 +9,7 @@
+ #include "tracker/tracker_list.h"
+ 
+ #define LT_LOG_TRACKER_EVENTS(log_fmt, ...)                              \
+-  lt_log_print_info(LOG_TRACKER_EVENTS, m_tracker_list->info(), "tracker_controller", log_fmt, __VA_ARGS__);
++  lt_log_print_info(LOG_TRACKER_EVENTS, m_tracker_list->info(), "tracker_controller : " log_fmt, __VA_ARGS__);
+ 
+ namespace torrent {
+ 
+diff --git a/src/tracker/tracker_dht.cc b/src/tracker/tracker_dht.cc
+index 68c5c848..e9b74a80 100644
+--- a/src/tracker/tracker_dht.cc
++++ b/src/tracker/tracker_dht.cc
+@@ -14,7 +14,7 @@
+ #include "torrent/utils/option_strings.h"
+ 
+ #define LT_LOG(log_fmt, ...)                                            \
+-  lt_log_print_hash(LOG_TRACKER_REQUESTS, info().info_hash, "tracker_dht", "%p : " log_fmt, static_cast<TrackerWorker*>(this), __VA_ARGS__);
++  lt_log_print_hash(LOG_TRACKER_REQUESTS, info().info_hash, "%p : tracker_dht : " log_fmt, static_cast<TrackerWorker*>(this), __VA_ARGS__);
+ 
+ namespace torrent {
+ 
+diff --git a/src/tracker/tracker_http.cc b/src/tracker/tracker_http.cc
+index 9f5f38f1..fef9d967 100644
+--- a/src/tracker/tracker_http.cc
++++ b/src/tracker/tracker_http.cc
+@@ -22,11 +22,11 @@
+ #include "manager.h"
+ 
+ #define LT_LOG(log_fmt, ...)                                            \
+-  lt_log_print_hash(LOG_TRACKER_REQUESTS, info().info_hash, "tracker_http", "%p : " log_fmt, static_cast<TrackerWorker*>(this), __VA_ARGS__);
++  lt_log_print_hash(LOG_TRACKER_REQUESTS, info().info_hash, "%p : tracker_http : " log_fmt, static_cast<TrackerWorker*>(this), __VA_ARGS__);
+ 
+ #define LT_LOG_DUMP(log_dump_data, log_dump_size, log_fmt, ...)         \
+   lt_log_print_hash_dump(LOG_TRACKER_DUMP, log_dump_data, log_dump_size, info().info_hash, \
+-                         "tracker_http", "%p : " log_fmt, static_cast<TrackerWorker*>(this), __VA_ARGS__);
++                         "%p : tracker_http : " log_fmt, static_cast<TrackerWorker*>(this), __VA_ARGS__);
+ 
+ namespace torrent {
+ 
+diff --git a/src/tracker/tracker_list.cc b/src/tracker/tracker_list.cc
+index b7d8ba7d..ffa4bc21 100644
+--- a/src/tracker/tracker_list.cc
++++ b/src/tracker/tracker_list.cc
+@@ -21,17 +21,19 @@
+ #include "tracker/tracker_udp.h"
+ 
+ #define LT_LOG(log_fmt, ...)                                            \
+-  lt_log_print_hash(LOG_TRACKER_EVENTS, info()->info_hash(), "tracker_list", log_fmt, __VA_ARGS__);
++  lt_log_print_hash(LOG_TRACKER_EVENTS, info()->info_hash(), "tracker_list : " log_fmt, __VA_ARGS__);
+ 
+ namespace torrent {
+ 
+ namespace {
++
+ constexpr size_t max_failure_message_size = 512;
+ 
+ std::string
+ sanitize_failure_message(const std::string& msg) {
+   return utils::sanitize_string(msg).substr(0, max_failure_message_size);
+ }
++
+ } // namespace
+ 
+ TrackerList::TrackerList() :
+diff --git a/src/tracker/tracker_udp.cc b/src/tracker/tracker_udp.cc
+index 033c41c0..1e5b1159 100644
+--- a/src/tracker/tracker_udp.cc
++++ b/src/tracker/tracker_udp.cc
+@@ -13,11 +13,11 @@
+ #include "tracker/udp_router.h"
+ 
+ #define LT_LOG(log_fmt, ...)                                            \
+-  lt_log_print_hash(LOG_TRACKER_REQUESTS, info().info_hash, "tracker_udp", "%p : " log_fmt, static_cast<TrackerWorker*>(this), __VA_ARGS__);
++  lt_log_print_hash(LOG_TRACKER_REQUESTS, info().info_hash, "%p : tracker_udp : " log_fmt, static_cast<TrackerWorker*>(this), __VA_ARGS__);
+ 
+ #define LT_LOG_DUMP(log_dump_data, log_dump_size, log_fmt, ...)         \
+   lt_log_print_hash_dump(LOG_TRACKER_DUMP, log_dump_data, log_dump_size, info().info_hash, \
+-                         "tracker_udp", "%p : " log_fmt, static_cast<TrackerWorker*>(this), __VA_ARGS__);
++                         "%p : tracker_udp : " log_fmt, static_cast<TrackerWorker*>(this), __VA_ARGS__);
+ 
+ namespace torrent::tracker {
+ 
+diff --git a/src/tracker/udp_router.cc b/src/tracker/udp_router.cc
+index 507f3812..aa5ddeea 100644
+--- a/src/tracker/udp_router.cc
++++ b/src/tracker/udp_router.cc
+@@ -17,7 +17,7 @@
+ #include "torrent/utils/log.h"
+ 
+ #define LT_LOG(log_fmt, ...)                                            \
+-  lt_log_print_subsystem(LOG_TRACKER_REQUESTS, "udp-router", log_fmt, __VA_ARGS__);
++  lt_log_print(LOG_TRACKER_REQUESTS, "udp-router : " log_fmt, __VA_ARGS__);
+   // lt_log_print_subsystem(LOG_TRACKER_REQUESTS, "udp_router", "%p : " log_fmt, static_cast<TrackerWorker*>(this), __VA_ARGS__);
+ 
+ // TODO: Add m_connections::iterator to info so we don't need to look them up. We should be able to
+diff --git a/test/Makefile.am b/test/Makefile.am
+index 9f8475bf..934e5dca 100644
+--- a/test/Makefile.am
++++ b/test/Makefile.am
+@@ -91,6 +91,8 @@ LibTorrent_Test_Torrent_Utils_SOURCES = $(LibTorrent_Test_Common) \
+ 	torrent/utils/directory_events_test.h \
+ 	torrent/utils/test_option_strings.cc \
+ 	torrent/utils/test_option_strings.h \
++	torrent/utils/test_rate.cc \
++	torrent/utils/test_rate.h \
+ 	torrent/utils/test_queue_buckets.cc \
+ 	torrent/utils/test_queue_buckets.h \
+ 	torrent/utils/test_thread_base.cc \
+diff --git a/test/protocol/test_request_list.cc b/test/protocol/test_request_list.cc
+index 40979911..b188e62f 100644
+--- a/test/protocol/test_request_list.cc
++++ b/test/protocol/test_request_list.cc
+@@ -3,6 +3,7 @@
+ #include "test/protocol/test_request_list.h"
+ 
+ #include "download/delegator.h"
++#include "protocol/extensions.h"
+ #include "protocol/peer_chunks.h"
+ #include "protocol/request_list.h"
+ #include "test/helpers/network.h"
+@@ -137,6 +138,29 @@ TestRequestList::test_basic() {
+   CPPUNIT_ASSERT(request_list->transfer() == NULL);
+ }
+ 
++// A peer queues a limited number of requests, advertised as "reqq" in the handshake.
++// The pipe should never grow beyond that (or the default, for a peer that sent none)
++void
++TestRequestList::test_pipe_size_limit() {
++  SETUP_ALL(basic);
++
++  const uint32_t none = torrent::ProtocolExtension::default_peer_request_queue_size;
++
++  CPPUNIT_ASSERT(request_list->calculate_pipe_size(1024 * 10, none) == 12);
++  CPPUNIT_ASSERT(request_list->calculate_pipe_size(1024 * 2400, none) == 498);
++  CPPUNIT_ASSERT(request_list->calculate_pipe_size(1024 * 100000, none) == 500);
++
++  CPPUNIT_ASSERT(request_list->calculate_pipe_size(1024 * 100000, 255) == 255);
++  CPPUNIT_ASSERT(request_list->calculate_pipe_size(1024 * 10, 255) == 12);
++
++  CPPUNIT_ASSERT(request_list->calculate_pipe_size(1024 * 100000, 2048) == 2048);
++  CPPUNIT_ASSERT(request_list->calculate_pipe_size(1024 * 2400, 2048) == 498);
++
++  // Our own 2048 limit on requests from the peer does not cap requests to it.
++  CPPUNIT_ASSERT(request_list->calculate_pipe_size(1024 * 100000, 5000) == 5000);
++  CPPUNIT_ASSERT(request_list->calculate_pipe_size(1024 * 2400, 5000) == 498);
++}
++
+ void
+ TestRequestList::test_single_request() {
+   SETUP_ALL(basic);
+diff --git a/test/protocol/test_request_list.h b/test/protocol/test_request_list.h
+index ed62d962..18817970 100644
+--- a/test/protocol/test_request_list.h
++++ b/test/protocol/test_request_list.h
+@@ -4,6 +4,7 @@ class TestRequestList : public test_fixture {
+   CPPUNIT_TEST_SUITE(TestRequestList);
+ 
+   CPPUNIT_TEST(test_basic);
++  CPPUNIT_TEST(test_pipe_size_limit);
+   CPPUNIT_TEST(test_single_request);
+   CPPUNIT_TEST(test_single_canceled);
+ 
+@@ -16,6 +17,7 @@ class TestRequestList : public test_fixture {
+ 
+ public:
+   void test_basic();
++  void test_pipe_size_limit();
+ 
+   void test_single_request();
+   void test_single_canceled();
+diff --git a/test/torrent/utils/test_log.cc b/test/torrent/utils/test_log.cc
+index 39102b87..e5e7b50f 100644
+--- a/test/torrent/utils/test_log.cc
++++ b/test/torrent/utils/test_log.cc
+@@ -117,6 +117,24 @@ test_log::test_print() {
+   LTUNIT_ASSERT_OUTPUT(0, 0x1|0x2, "test_multiple", "test_multiple");
+ }
+ 
++void
++test_log::test_dump() {
++  std::vector<std::pair<int, std::string>> records;
++  torrent::log_open_output("test_dump", [&records](const char* data, size_t size, int group) {
++    records.emplace_back(group, std::string(data, size));
++  });
++  torrent::log_add_group_output(0, "test_dump");
++
++  const char dump_data[] = { 'a', '\0', 'b' };
++  lt_log_print_dump(0, dump_data, sizeof(dump_data), "dump %s", "record");
++
++  CPPUNIT_ASSERT(records.size() == 2);
++  CPPUNIT_ASSERT(records[0].first == 0);
++  CPPUNIT_ASSERT(records[0].second == "dump record");
++  CPPUNIT_ASSERT(records[1].first == -1);
++  CPPUNIT_ASSERT(records[1].second == std::string(dump_data, sizeof(dump_data)));
++}
++
+ // The prefix written before the message leaves less than the full
+ // buffer for vsnprintf, so the returned count must be clamped against
+ // what is left rather than against the buffer size.
+@@ -134,7 +152,7 @@ test_log::test_print_long_line() {
+   output_mask = 0;
+   output_length = 0;
+ 
+-  lt_log_print_hash(0, hash, "subsystem", "%s", message.c_str());
++  lt_log_print_hash(0, hash, "subsystem : %s", message.c_str());
+ 
+   CPPUNIT_ASSERT(output_mask == 0x1);
+   CPPUNIT_ASSERT(output_length < 4096);
+diff --git a/test/torrent/utils/test_log.h b/test/torrent/utils/test_log.h
+index 20eaf6d1..20a42c5e 100644
+--- a/test/torrent/utils/test_log.h
++++ b/test/torrent/utils/test_log.h
+@@ -7,6 +7,7 @@ class test_log : public TestFixtureWithMainThread {
+   CPPUNIT_TEST(test_output_open);
+ 
+   CPPUNIT_TEST(test_print);
++  CPPUNIT_TEST(test_dump);
+   CPPUNIT_TEST(test_print_long_line);
+   CPPUNIT_TEST(test_children);
+   CPPUNIT_TEST(test_file_output);
+@@ -21,6 +22,7 @@ public:
+   void test_output_open();
+ 
+   void test_print();
++  void test_dump();
+   void test_print_long_line();
+   void test_children();
+   void test_file_output();
+diff --git a/test/torrent/utils/test_option_strings.cc b/test/torrent/utils/test_option_strings.cc
+index b2ead5c9..1e653baf 100644
+--- a/test/torrent/utils/test_option_strings.cc
++++ b/test/torrent/utils/test_option_strings.cc
+@@ -27,7 +27,11 @@ test_option_strings::test_entries() {
+   TEST_ENTRY(OPTION_ENCRYPTION_STREAM, "stream_prefer",  torrent::ENCRYPTION_MODE_PREFER);
+   TEST_ENTRY(OPTION_ENCRYPTION_STREAM, "stream_require", torrent::ENCRYPTION_MODE_REQUIRE);
+ 
+-  TEST_ENTRY(OPTION_LOG_GROUP, "critical", torrent::LOG_CRITICAL);
+-  TEST_ENTRY(OPTION_LOG_GROUP, "storage_notice", torrent::LOG_STORAGE_NOTICE);
++  TEST_ENTRY(OPTION_LOG_GROUP, "errors", torrent::LOG_ERRORS);
++  TEST_ENTRY(OPTION_LOG_GROUP, "events", torrent::LOG_EVENTS);
++  TEST_ENTRY(OPTION_LOG_GROUP, "debug_trace", torrent::LOG_DEBUG_TRACE);
++  TEST_ENTRY(OPTION_LOG_GROUP, "storage_debug", torrent::LOG_STORAGE_DEBUG);
++  TEST_ENTRY(OPTION_LOG_GROUP, "storage_events", torrent::LOG_STORAGE_EVENTS);
++  TEST_ENTRY(OPTION_LOG_GROUP, "storage_errors", torrent::LOG_STORAGE_ERRORS);
+   TEST_ENTRY(OPTION_LOG_GROUP, "torrent_debug", torrent::LOG_TORRENT_DEBUG);
+ }
+diff --git a/test/torrent/utils/test_rate.cc b/test/torrent/utils/test_rate.cc
+new file mode 100644
+index 00000000..c216ac74
+--- /dev/null
++++ b/test/torrent/utils/test_rate.cc
+@@ -0,0 +1,116 @@
++#include "config.h"
++
++#include "test_rate.h"
++
++#include "torrent/rate.h"
++
++CPPUNIT_TEST_SUITE_NAMED_REGISTRATION(test_rate, "torrent/utils");
++
++void
++test_rate::test_startup_and_filling_window() {
++  m_main_thread->test_set_cached_time(0s);
++  torrent::Rate rate(4, 3, 3, 4);
++
++  rate.insert(100);
++  CPPUNIT_ASSERT_EQUAL(torrent::Rate::rate_type{33}, rate.rate());
++
++  m_main_thread->test_add_cached_time(1s);
++  rate.insert(100);
++  CPPUNIT_ASSERT_EQUAL(torrent::Rate::rate_type{66}, rate.rate());
++
++  m_main_thread->test_add_cached_time(1s);
++  rate.insert(100);
++  CPPUNIT_ASSERT_EQUAL(torrent::Rate::rate_type{100}, rate.rate());
++
++  m_main_thread->test_add_cached_time(1s);
++  rate.insert(100);
++  CPPUNIT_ASSERT_EQUAL(torrent::Rate::rate_type{100}, rate.rate());
++
++  m_main_thread->test_add_cached_time(1s);
++  rate.insert(100);
++  CPPUNIT_ASSERT_EQUAL(torrent::Rate::rate_type{100}, rate.rate());
++}
++
++void
++test_rate::test_rate_decays_after_span() {
++  m_main_thread->test_set_cached_time(0s);
++  torrent::Rate rate(5);
++
++  rate.insert(500);
++  m_main_thread->test_add_cached_time(5s);
++
++  CPPUNIT_ASSERT_EQUAL(torrent::Rate::rate_type{0}, rate.rate());
++}
++
++void
++test_rate::test_restart_after_idle() {
++  m_main_thread->test_set_cached_time(0s);
++  torrent::Rate rate(30, 3, 3, 10);
++
++  rate.insert(1200);
++  m_main_thread->test_add_cached_time(1s);
++  rate.insert(1200);
++
++  m_main_thread->test_add_cached_time(9s);
++  CPPUNIT_ASSERT(rate.rate() < 1200);
++
++  rate.insert(1200);
++  CPPUNIT_ASSERT_EQUAL(torrent::Rate::rate_type{400}, rate.rate());
++
++  m_main_thread->test_add_cached_time(11s);
++  CPPUNIT_ASSERT(rate.rate() == 0);
++}
++
++void
++test_rate::test_zero_bytes_do_not_prevent_idle_restart() {
++  m_main_thread->test_set_cached_time(0s);
++  torrent::Rate rate(30, 3, 3, 10);
++
++  rate.insert(1200);
++  m_main_thread->test_add_cached_time(9s);
++  rate.insert(0);
++  m_main_thread->test_add_cached_time(9s);
++  rate.insert(0);
++  m_main_thread->test_add_cached_time(9s);
++  rate.insert(1200);
++
++  CPPUNIT_ASSERT(rate.rate() == 400);
++}
++
++void
++test_rate::test_zero_bytes_do_not_discard_samples() {
++  m_main_thread->test_set_cached_time(0s);
++  torrent::Rate rate(30, 3, 3, 10);
++
++  rate.insert(1200);
++  m_main_thread->test_add_cached_time(4s);
++  rate.insert(0);
++
++  CPPUNIT_ASSERT_EQUAL(torrent::Rate::rate_type{240}, rate.rate());
++}
++
++void
++test_rate::test_clock_rollback_resets_rate() {
++  m_main_thread->test_set_cached_time(10s);
++  torrent::Rate rate(30, 3, 3, 10);
++
++  rate.insert(1200);
++  m_main_thread->test_set_cached_time(9s);
++  rate.insert(300);
++
++  CPPUNIT_ASSERT_EQUAL(torrent::Rate::rate_type{100}, rate.rate());
++  CPPUNIT_ASSERT_EQUAL(torrent::Rate::total_type{1500}, rate.total());
++}
++
++void
++test_rate::test_startup_span() {
++  m_main_thread->test_set_cached_time(0s);
++  torrent::Rate rate(30, 5, 6, 10);
++
++  CPPUNIT_ASSERT_EQUAL(torrent::Rate::timer_type{5}, rate.startup_span());
++  rate.insert(600);
++  CPPUNIT_ASSERT_EQUAL(torrent::Rate::rate_type{100}, rate.rate());
++
++  torrent::Rate clamped_rate(30, 30, 30, 30);
++  CPPUNIT_ASSERT_EQUAL(torrent::Rate::timer_type{30}, clamped_rate.startup_span());
++}
+diff --git a/test/torrent/utils/test_rate.h b/test/torrent/utils/test_rate.h
+new file mode 100644
+index 00000000..9a18180b
+--- /dev/null
++++ b/test/torrent/utils/test_rate.h
+@@ -0,0 +1,24 @@
++#include "helpers/test_main_thread.h"
++
++class test_rate : public TestFixtureWithMainThread {
++  CPPUNIT_TEST_SUITE(test_rate);
++
++  CPPUNIT_TEST(test_startup_and_filling_window);
++  CPPUNIT_TEST(test_rate_decays_after_span);
++  CPPUNIT_TEST(test_restart_after_idle);
++  CPPUNIT_TEST(test_zero_bytes_do_not_prevent_idle_restart);
++  CPPUNIT_TEST(test_zero_bytes_do_not_discard_samples);
++  CPPUNIT_TEST(test_clock_rollback_resets_rate);
++  CPPUNIT_TEST(test_startup_span);
++
++  CPPUNIT_TEST_SUITE_END();
++
++public:
++  void test_startup_and_filling_window();
++  void test_rate_decays_after_span();
++  void test_restart_after_idle();
++  void test_zero_bytes_do_not_prevent_idle_restart();
++  void test_zero_bytes_do_not_discard_samples();
++  void test_clock_rollback_resets_rate();
++  void test_startup_span();
++};

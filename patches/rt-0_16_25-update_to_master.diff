@@ -1,0 +1,1153 @@
+diff --git a/doc/manual/logging.tex b/doc/manual/logging.tex
+index df362f5b..fff37bdb 100644
+--- a/doc/manual/logging.tex
++++ b/doc/manual/logging.tex
+@@ -18,7 +18,8 @@ Some control over formatting will be provided at a later date.
+ \begin{verbatim}
+ # log.add_output = "logging event", "log name"
+ 
+-log.add_output = "info", "rtorrent.log"
++log.add_output = "errors", "rtorrent.log"
++log.add_output = "events", "rtorrent.log"
+ 
+ log.add_output = "dht_all", "tracker.log"
+ log.add_output = "tracker_events", "tracker.log"
+@@ -31,21 +32,16 @@ Each log handle can be added to multiple different logging events.
+ \subsection{Logging events}
+ 
+ \begin{verbatim}
+-"critical"
+-"error"
+-"warn"
+-"notice"
+-"info"
+-"debug"
++"errors"
++"events"
++"debug_trace"
+ \end{verbatim}
+ 
+-The above events receive logging events from all the sub-groups
+-displayed below, and each event also reciving events from the event
+-above in importance.
++The above events are not cascading, so add both ``errors'' and
++``events'' to an output to receive both.
+ 
+-Thus some high-volume sub-group events such as ``tracker\_debug'' are
+-not part of ``debug'' and every ``warn'' event will receive events
+-from ``error'', ``critical''.
++High-volume sub-group events such as ``tracker\_debug'' are not part
++of ``debug\_trace''.
+ 
+ \begin{verbatim}
+ "connection_*"
+diff --git a/doc/rtorrent.rc-example b/doc/rtorrent.rc-example
+index ed9aeea1..3778cf8e 100644
+--- a/doc/rtorrent.rc-example
++++ b/doc/rtorrent.rc-example
+@@ -104,7 +104,8 @@ print = (cat, "Logging to ", (cfg.logfile))
+ 
+ log.open_file = "log", (cfg.logfile)
+ 
+-log.add_output = "info", "log"
++log.add_output = "errors", "log"
++log.add_output = "events", "log"
+ #log.add_output = "tracker_events", "log"
+ #log.add_output = "tracker_requests", "log"
+ 
+diff --git a/doc/rtorrent.rc.lua-example b/doc/rtorrent.rc.lua-example
+index 08d37fec..2339aba1 100644
+--- a/doc/rtorrent.rc.lua-example
++++ b/doc/rtorrent.rc.lua-example
+@@ -135,7 +135,8 @@ rc.schedule2('watch_load', '11', '10', 'load.verbose=(cat, (cfg.watch), "load/*.
+ --   Groups = connection_* dht_* peer_* rpc_* storage_* thread_* tracker_* torrent_*
+ rc.print('Logging to '..rc.cfg.logfile())
+ rc.log.open_file('log', rc.cfg.logfile())
+-rc.log.add_output('info', 'log')
++rc.log.add_output('errors', 'log')
++rc.log.add_output('events', 'log')
+ --rc.log.add_output('tracker_events', 'log')
+ --rc.log.add_output('tracker_requests', 'log')
+ 
+diff --git a/src/command_download.cc b/src/command_download.cc
+index 1317245e..7aa265af 100644
+--- a/src/command_download.cc
++++ b/src/command_download.cc
+@@ -107,7 +107,7 @@ apply_d_change_link(core::Download* download, const torrent::Object::list_type&
+   switch (changeType) {
+   case 0:
+     if (symlink(target.c_str(), link.c_str()) == -1)
+-      lt_log_print(torrent::LOG_TORRENT_WARN, "create_link failed: %s", std::strerror(errno));
++      lt_log_print(torrent::LOG_TORRENT_DEBUG, "create_link failed: %s", std::strerror(errno));
+ 
+     break;
+ 
+@@ -117,7 +117,7 @@ apply_d_change_link(core::Download* download, const torrent::Object::list_type&
+     errno = 0;
+ 
+     if (!fileStat.update_link(link) || !fileStat.is_link() || unlink(link.c_str()) == -1)
+-      lt_log_print(torrent::LOG_TORRENT_WARN, "delete_link failed: %s", std::strerror(errno));
++      lt_log_print(torrent::LOG_TORRENT_DEBUG, "delete_link failed: %s", std::strerror(errno));
+ 
+     break;
+   }
+@@ -135,7 +135,7 @@ apply_d_delete_tied(core::Download* download) {
+   if (tie.empty())
+     return torrent::Object();
+ 
+-  if (::unlink(expand_path(tie).c_str()) == -1)
++  if (unlink(expand_path(tie).c_str()) == -1)
+     control->core()->push_log_std("Could not unlink tied file: " + std::string(std::strerror(errno)));
+ 
+   rpc::call_command("d.tied_to_file.set", std::string(), rpc::make_target(download));
+@@ -293,7 +293,7 @@ apply_d_add_peer(core::Download* download, const std::string& arg) {
+   // Currently discarding SOCK_STREAM.
+   torrent::this_thread::resolver()->resolve_preferred(callback_id, host, AF_UNSPEC, AF_INET, [download, port](torrent::c_sa_shared_ptr sa, int err) {
+       if (sa == nullptr) {
+-        lt_log_print(torrent::LOG_TORRENT_WARN, "could not resolve hostname for added peer: %s", gai_strerror(err));
++        lt_log_print(torrent::LOG_TORRENT_DEBUG, "could not resolve hostname for added peer: %s", gai_strerror(err));
+         return;
+       }
+ 
+@@ -334,6 +334,11 @@ f_multicall(core::Download* download, const torrent::Object::list_type& args) {
+ 
+   bool use_regex = true;
+ 
++  rpc::preparsed_commands commands([&args](auto& cmds) {
++    for (auto cItr = ++args.begin(); cItr != args.end(); ++cItr)
++      cmds.push_back(rpc::parse_command_object(cItr->as_string()));
++  });
++
+   if (args.front().is_list())
+     for (const auto& o : args.front().as_list())
+       regex_list.push_back(o.as_string_c());
+@@ -349,10 +354,10 @@ f_multicall(core::Download* download, const torrent::Object::list_type& args) {
+ 
+     torrent::Object::list_type& row = result.insert(result.end(), torrent::Object::create_list())->as_list();
+ 
+-    for (torrent::Object::list_const_iterator cItr = ++args.begin(); cItr != args.end(); cItr++) {
+-      const std::string& cmd = cItr->as_string();
+-      row.push_back(rpc::parse_command(rpc::make_target(file.get()), cmd.c_str(), cmd.c_str() + cmd.size()).first);
+-    }
++    // Defer parsing until a file actually matches the multicall selection.
++    commands.prepare_if_needed();
++    for (auto& itr : commands)
++      row.push_back(rpc::call_object(itr, rpc::make_target(file.get())));
+   }
+ 
+   return resultRaw;
+@@ -372,6 +377,11 @@ t_multicall(core::Download* download, const torrent::Object::list_type& args) {
+   auto  result_raw = torrent::Object::create_list();
+   auto& result     = result_raw.as_list();
+ 
++  rpc::preparsed_commands commands([&args](auto& cmds) {
++    for (auto cItr = ++args.begin(); cItr != args.end(); ++cItr)
++      cmds.push_back(rpc::parse_command_object(cItr->as_string()));
++  });
++
+   for (uint32_t idx = 0, last = download->tracker_list_size(); idx < last; idx++) {
+     auto& row     = result.insert(result.end(), torrent::Object::create_list())->as_list();
+     auto  tracker = download->tracker_controller().at(idx);
+@@ -379,11 +389,10 @@ t_multicall(core::Download* download, const torrent::Object::list_type& args) {
+     if (!tracker.is_valid())
+       continue;
+ 
+-    for (auto cItr = ++args.begin(); cItr != args.end(); cItr++) {
+-      auto& cmd = cItr->as_string();
+-
+-      row.push_back(rpc::parse_command(rpc::make_target(&tracker), cmd.c_str(), cmd.c_str() + cmd.size()).first);
+-    }
++    // Do not parse columns when there are no valid tracker targets.
++    commands.prepare_if_needed();
++    for (auto& itr : commands)
++      row.push_back(rpc::call_object(itr, rpc::make_target(&tracker)));
+   }
+ 
+   return result_raw;
+@@ -405,13 +414,18 @@ p_multicall(core::Download* download, const torrent::Object::list_type& args) {
+   auto*      connection_list = download->connection_list();
+   const auto change_counter  = connection_list->change_counter();
+ 
++  rpc::preparsed_commands commands([&args](auto& cmds) {
++    for (auto cItr = ++args.begin(); cItr != args.end(); ++cItr)
++      cmds.push_back(rpc::parse_command_object(cItr->as_string()));
++  });
++
+   for (const auto& connection : *connection_list) {
+     torrent::Object::list_type& row = result.insert(result.end(), torrent::Object::create_list())->as_list();
+ 
+-    for (auto cItr = ++args.begin(); cItr != args.end(); cItr++) {
+-      const std::string& cmd = cItr->as_string();
+-
+-      row.push_back(rpc::parse_command(rpc::make_target(connection), cmd.c_str(), cmd.c_str() + cmd.size()).first);
++    // Prepare only after a peer exists, preserving empty-list laziness.
++    commands.prepare_if_needed();
++    for (auto& itr : commands) {
++      row.push_back(rpc::call_object(itr, rpc::make_target(connection)));
+ 
+       // Erasing a peer frees it and swaps the last element into its place, so
+       // neither this peer nor the iteration survives a change to the list.
+diff --git a/src/command_dynamic.cc b/src/command_dynamic.cc
+index edbc3278..726d0267 100644
+--- a/src/command_dynamic.cc
++++ b/src/command_dynamic.cc
+@@ -394,7 +394,7 @@ cmd_catch(rpc::target_type target, const torrent::Object& args) {
+   try {
+     return rpc::call_object(args, target);
+   } catch (torrent::input_error& e) {
+-    lt_log_print(torrent::LOG_WARN, "Caught exception: '%s'.", e.what());
++    lt_log_print(torrent::LOG_ERRORS, "Caught exception: '%s'.", e.what());
+     return torrent::Object();
+   }
+ }
+diff --git a/src/command_events.cc b/src/command_events.cc
+index 2538944a..65bab28a 100644
+--- a/src/command_events.cc
++++ b/src/command_events.cc
+@@ -169,7 +169,7 @@ void apply_try_import(const std::string& path) { if (!rpc::parse_command_file(pa
+ 
+ torrent::Object
+ apply_close_low_diskspace(int64_t arg, uint32_t skip_priority) {
+-  bool closed = false;
++  int closed{};
+ 
+   torrent::FileList::cache_list cache;
+ 
+@@ -186,11 +186,11 @@ apply_close_low_diskspace(int64_t arg, uint32_t skip_priority) {
+     download->set_hash_failed(true);
+     download->set_message(std::string("Low diskspace."));
+ 
+-    closed = true;
++    closed++;
+   }
+ 
+-  if (closed)
+-    lt_log_print(torrent::LOG_TORRENT_ERROR, "Closed torrents due to low diskspace.");
++  if (closed != 0)
++    lt_log_print(torrent::LOG_TORRENT_EVENTS, "closed torrents due to low diskspace : count:%i", closed);
+ 
+   return torrent::Object();
+ }
+@@ -247,20 +247,26 @@ d_multicall(const torrent::Object::list_type& args) {
+   torrent::Object             resultRaw = torrent::Object::create_list();
+   torrent::Object::list_type& result = resultRaw.as_list();
+ 
++  rpc::preparsed_commands commands([&args](auto& cmds) {
++    for (auto cItr = ++args.begin(); cItr != args.end(); ++cItr)
++      cmds.push_back(rpc::parse_command_object(cItr->as_string()));
++  });
++
+   for (const auto& download : dlist) {
+     if (download.use_count() == 1)
+       continue;
+ 
+     torrent::Object::list_type& row = result.insert(result.end(), torrent::Object::create_list())->as_list();
+ 
+-    for (torrent::Object::list_const_iterator cItr = ++args.begin(); cItr != args.end(); cItr++) {
++    // Skip parsing if there are no usable download targets in the view.
++    commands.prepare_if_needed();
++    for (auto& itr : commands) {
+       // A command may erase this download, which destroys the torrent object it
+       // wraps; the list dropping its reference is what tells us.
+       if (download.use_count() == 1)
+         break;
+ 
+-      auto& cmd = cItr->as_string();
+-      row.push_back(rpc::parse_command(rpc::make_target(download), cmd.c_str(), cmd.c_str() + cmd.size()).first);
++      row.push_back(rpc::call_object(itr, rpc::make_target(download)));
+     }
+   }
+ 
+diff --git a/src/command_groups.cc b/src/command_groups.cc
+index 69bf326d..119a7df7 100644
+--- a/src/command_groups.cc
++++ b/src/command_groups.cc
+@@ -20,9 +20,6 @@
+ // For cg_d_group.
+ #include "core/download.h"
+ 
+-#define LT_LOG_SUBSYSTEM(log_fmt, ...)                                  \
+-  lt_log_print_subsystem(torrent::LOG_TORRENT_INFO, "choke_queue", log_fmt, __VA_ARGS__);
+-
+ // A hack to allow testing of the new choke_group API without the
+ // working parts present.
+ #define USE_CHOKE_GROUP 0
+@@ -207,7 +204,7 @@ apply_cg_index_of(const std::string& arg) {
+ 
+ torrent::Object
+ apply_cg_all_update_balance(bool is_up) {
+-  LT_LOG_SUBSYSTEM("apply update balance: hack is_up:%i", (int)is_up);
++  lt_log_print(torrent::LOG_TORRENT_DEBUG, "choke_queue : applying update balance : is_up:%i", (int)is_up);
+ 
+   for (const auto& itr : cg_list_hack) {
+     if (is_up)
+diff --git a/src/command_local.cc b/src/command_local.cc
+index 7bc71b61..505a138b 100644
+--- a/src/command_local.cc
++++ b/src/command_local.cc
+@@ -88,7 +88,7 @@ initialize_command_local() {
+   CMD_ANY_VALUE_V ("pieces.sync.timeout.set",         [](auto, auto& value) { return torrent::runtime::memory_manager()->set_timeout_sync(value); });
+   CMD_ANY         ("pieces.sync.timeout_safe",        [](auto, auto)        { return 0; });
+   CMD_ANY_VALUE_V ("pieces.sync.timeout_safe.set",    [](auto, auto)        {
+-      lt_log_print(torrent::LOG_WARN, "pieces.sync.timeout_safe.set is no longer supported and does nothing.");
++      lt_log_print(torrent::LOG_ERRORS, "pieces.sync.timeout_safe.set is no longer supported and does nothing.");
+     });
+   CMD_ANY         ("pieces.sync.queue_size",          [](auto, auto)        { return torrent::runtime::memory_manager()->sync_queue_block_count(); });
+ 
+diff --git a/src/command_network.cc b/src/command_network.cc
+index 275a4e91..bb1d19d7 100644
+--- a/src/command_network.cc
++++ b/src/command_network.cc
+@@ -106,7 +106,7 @@ apply_obsolete_encryption(const torrent::Object::list_type& args) {
+     }
+   }
+ 
+-  lt_log_print(torrent::LOG_WARN, "Obsolete encryption options used, use 'handshake_{deny,allow,prefer,require}, stream_{deny,allow,prefer,require}' instead.");
++  lt_log_print(torrent::LOG_ERRORS, "Obsolete encryption options used, use 'handshake_{deny,allow,prefer,require}, stream_{deny,allow,prefer,require}' instead.");
+ 
+   torrent::runtime::network_config()->set_encryption_modes(handshake_mode, stream_mode);
+   return {};
+diff --git a/src/command_tracker.cc b/src/command_tracker.cc
+index 3a53cc47..171d1e86 100644
+--- a/src/command_tracker.cc
++++ b/src/command_tracker.cc
+@@ -133,7 +133,7 @@ initialize_command_tracker() {
+ 
+   CMD2_ANY            ("trackers.use_udp",     [](auto, auto) { return true; });
+   CMD2_ANY_VALUE_V    ("trackers.use_udp.set", [](auto, auto) {
+-      lt_log_print(torrent::LOG_ERROR, "trackers.use_udp.set is no longer supported", 0);
++      lt_log_print(torrent::LOG_ERRORS, "trackers.use_udp.set is no longer supported", 0);
+     })
+ 
+   CMD2_ANY_STRING_V   ("dht.mode.set",          [](auto, auto& str) { return control->dht_manager()->set_mode_by_user(str); });
+diff --git a/src/core/dht_manager.cc b/src/core/dht_manager.cc
+index d9f3d336..0885bf39 100644
+--- a/src/core/dht_manager.cc
++++ b/src/core/dht_manager.cc
+@@ -21,10 +21,10 @@
+ #include "session/session_manager.h"
+ 
+ #define LT_LOG(log_fmt, ...)                                            \
+-  lt_log_print_subsystem(torrent::LOG_DHT_CONTROLLER, "dht_manager", log_fmt, __VA_ARGS__);
++  lt_log_print(torrent::LOG_DHT_CONTROLLER, "dht_manager : " log_fmt, __VA_ARGS__);
+ 
+ #define LT_LOG_ERROR(log_fmt, ...)                                      \
+-  lt_log_print_subsystem(torrent::LOG_DHT_ERROR, "dht_manager", log_fmt, __VA_ARGS__);
++  lt_log_print(torrent::LOG_DHT_ERROR, "dht_manager : " log_fmt, __VA_ARGS__);
+ 
+ namespace core {
+ 
+diff --git a/src/core/download_factory.cc b/src/core/download_factory.cc
+index 74c548dc..bb5c512f 100644
+--- a/src/core/download_factory.cc
++++ b/src/core/download_factory.cc
+@@ -184,7 +184,7 @@ DownloadFactory::receive_success() {
+     libtorrent_resume_object = download_factory_load_stream((expand_path(m_uri) + ".libtorrent_resume").c_str(), &session_invalid);
+ 
+     if (session_invalid)
+-      lt_log_print(torrent::LOG_ERROR, "%s: %s", session_invalid_message, m_uri.c_str());
++      lt_log_print(torrent::LOG_ERRORS, "%s: %s", session_invalid_message, m_uri.c_str());
+   }
+ 
+   uint32_t tracker_key;
+@@ -313,7 +313,7 @@ DownloadFactory::receive_success() {
+   } catch (const torrent::input_error& e) {
+     std::string msg = std::string(session_invalid_message) + ": " + e.what();
+ 
+-    lt_log_print(torrent::LOG_ERROR, "%s: %s", msg.c_str(), m_uri.c_str());
++    lt_log_print(torrent::LOG_ERRORS, "%s: %s", msg.c_str(), m_uri.c_str());
+ 
+     if (m_printLog)
+       m_manager->push_log_std(msg + ": \"" + m_uri + "\"");
+diff --git a/src/core/download_list.cc b/src/core/download_list.cc
+index 6fd24664..8d95105f 100644
+--- a/src/core/download_list.cc
++++ b/src/core/download_list.cc
+@@ -29,7 +29,12 @@
+ #include "session/session_manager.h"
+ #include "ui/root.h"
+ 
+-#define DL_TRIGGER_EVENT(download, event_name) \
++#define LT_LOG_DOWNLOAD_DEBUG(log_fmt, ...)                             \
++  lt_log_print_hash(torrent::LOG_TORRENT_DEBUG, download->info()->hash(), "download_list : " log_fmt, __VA_ARGS__);
++#define LT_LOG_DOWNLOAD_EVENTS(log_fmt, ...)                             \
++  lt_log_print_info(torrent::LOG_TORRENT_EVENTS, download->info(), "download_list : " log_fmt, __VA_ARGS__);
++
++#define DL_TRIGGER_EVENT(download, event_name)                          \
+   rpc::commands.call_catch(event_name, rpc::make_target(download), torrent::Object(), "Event '" event_name "' failed: ");
+ 
+ namespace core {
+@@ -56,7 +61,7 @@ DownloadList::clear() {
+       torrent::download_remove(*download->download());
+ 
+     } catch (torrent::internal_error& e) {
+-      lt_log_print(torrent::LOG_ERROR, "DownloadList::clear() failed to close or remove download: %s", e.what());
++      lt_log_print(torrent::LOG_ERRORS, "DownloadList::clear() failed to close or remove download: %s", e.what());
+       error_count++;
+       continue;
+     }
+@@ -109,7 +114,7 @@ DownloadList::create(torrent::Object* obj, uint32_t tracker_key, bool printLog)
+ 
+   } catch (torrent::local_error& e) {
+     if (printLog)
+-      lt_log_print(torrent::LOG_TORRENT_ERROR, "Could not create download: %s", e.what());
++      lt_log_print(torrent::LOG_TORRENT_EVENTS, "download_list : could not create download : %s", e.what());
+ 
+     delete obj;
+ 
+@@ -135,7 +140,7 @@ DownloadList::create(std::istream* str, uint32_t tracker_key, bool printLog) {
+       delete object;
+ 
+       if (printLog)
+-        lt_log_print(torrent::LOG_TORRENT_ERROR, "Could not create download, the input is not a valid torrent.");
++        lt_log_print(torrent::LOG_TORRENT_EVENTS, "download_list : could not create download : invalid or incomplete bencode data");
+ 
+       return NULL;
+     }
+@@ -146,7 +151,7 @@ DownloadList::create(std::istream* str, uint32_t tracker_key, bool printLog) {
+     delete object;
+ 
+     if (printLog)
+-      lt_log_print(torrent::LOG_TORRENT_ERROR, "Could not create download: %s", e.what());
++      lt_log_print(torrent::LOG_TORRENT_EVENTS, "download_list : could not create download : %s", e.what());
+ 
+     return NULL;
+   }
+@@ -160,7 +165,7 @@ DownloadList::iterator
+ DownloadList::insert(Download* download) {
+   iterator itr = base_type::insert(end(), std::shared_ptr<Download>(download));
+ 
+-  lt_log_print_info(torrent::LOG_TORRENT_INFO, download->info(), "download_list", "Inserting download.");
++  LT_LOG_DOWNLOAD_DEBUG("inserting download", 0);
+ 
+   try {
+     (*itr)->data()->slot_initial_hash()        = std::bind(&DownloadList::hash_done, this, download);
+@@ -200,7 +205,7 @@ DownloadList::erase(iterator itr) {
+ 
+   (*itr)->set_erasing();
+ 
+-  lt_log_print_info(torrent::LOG_TORRENT_INFO, (*itr)->info(), "download_list", "Erasing download.");
++  lt_log_print_hash(torrent::LOG_TORRENT_DEBUG, (*itr)->info()->hash(), "download_list : removing download");
+ 
+   // Makes sure close doesn't restart hashing of this download.
+   (*itr)->set_hash_failed(true);
+@@ -228,7 +233,7 @@ DownloadList::open(Download* download) {
+     return true;
+ 
+   } catch (torrent::local_error& e) {
+-    lt_log_print(torrent::LOG_TORRENT_ERROR, "Could not open download: %s", e.what());
++    lt_log_print(torrent::LOG_TORRENT_EVENTS, "download_list : could not open download : %s", e.what());
+     return false;
+   }
+ }
+@@ -237,7 +242,7 @@ void
+ DownloadList::open_throw(Download* download) {
+   check_contains(download);
+ 
+-  lt_log_print_info(torrent::LOG_TORRENT_INFO, download->info(), "download_list", "Opening download.");
++  lt_log_print_hash(torrent::LOG_TORRENT_DEBUG, download->info()->hash(), "download_list : opening download");
+ 
+   if (download->download()->info()->is_open())
+     return;
+@@ -248,6 +253,7 @@ DownloadList::open_throw(Download* download) {
+     openFlags |= torrent::Download::open_enable_fallocate;
+ 
+   download->download()->open(openFlags);
++
+   DL_TRIGGER_EVENT(download, "event.download.opened");
+ }
+ 
+@@ -257,7 +263,7 @@ DownloadList::close(Download* download) {
+     close_throw(download);
+ 
+   } catch (torrent::local_error& e) {
+-    lt_log_print(torrent::LOG_TORRENT_ERROR, "Could not close download: %s", e.what());
++    lt_log_print(torrent::LOG_TORRENT_EVENTS, "download_list : could not close download : %s", e.what());
+   }
+ }
+ 
+@@ -265,7 +271,7 @@ DownloadList::close(Download* download) {
+ // need the files closed and will keep using the download.
+ void
+ DownloadList::close_files(Download* download) {
+-  lt_log_print_info(torrent::LOG_TORRENT_INFO, download->info(), "download_list", "Closing download files.");
++  lt_log_print_hash(torrent::LOG_TORRENT_DEBUG, download->info()->hash(), "download_list : closing download files");
+ 
+   if (download->download()->info()->is_active()) {
+     download->download()->stop(torrent::Download::stop_skip_tracker);
+@@ -280,7 +286,7 @@ DownloadList::close_files(Download* download) {
+ 
+ void
+ DownloadList::close_directly(Download* download) {
+-  lt_log_print_info(torrent::LOG_TORRENT_INFO, download->info(), "download_list", "Closing download directly.");
++  lt_log_print_hash(torrent::LOG_TORRENT_DEBUG, download->info()->hash(), "download_list : closing download directly");
+ 
+   auto lifetime   = download->lifetime();
+   bool was_active = download->download()->info()->is_active();
+@@ -327,7 +333,8 @@ DownloadList::update_paused_state(Download* download) {
+ 
+ void
+ DownloadList::close_quick(Download* download) {
+-  lt_log_print_info(torrent::LOG_TORRENT_INFO, download->info(), "download_list", "Closing download quickly.");
++  lt_log_print_hash(torrent::LOG_TORRENT_DEBUG, download->info()->hash(), "download_list : closing download quickly.");
++
+   close(download);
+ 
+   // Make sure we cancel any tracker requests. This should rather be
+@@ -341,7 +348,7 @@ void
+ DownloadList::close_throw(Download* download) {
+   check_contains(download);
+ 
+-  lt_log_print_info(torrent::LOG_TORRENT_INFO, download->info(), "download_list", "Closing download with throw.");
++  LT_LOG_DOWNLOAD_DEBUG("closing download with throw", 0);
+ 
+   // When pause gets called it will clear the initial hash check state
+   // and set hash failed. This should ensure hashing doesn't restart
+@@ -383,7 +390,7 @@ void
+ DownloadList::resume(Download* download, int flags) {
+   check_contains(download);
+ 
+-  lt_log_print_info(torrent::LOG_TORRENT_INFO, download->info(), "download_list", "Resuming download: flags:%0x.", flags);
++  LT_LOG_DOWNLOAD_DEBUG("resuming download : flags:%0x.", flags);
+ 
+   try {
+ 
+@@ -472,7 +479,7 @@ DownloadList::resume(Download* download, int flags) {
+     DL_TRIGGER_EVENT(download, "event.download.resumed");
+ 
+   } catch (torrent::local_error& e) {
+-    lt_log_print(torrent::LOG_TORRENT_ERROR, "Could not resume download: %s", e.what());
++    LT_LOG_DOWNLOAD_EVENTS("could not resume download : %s", e.what());
+   }
+ }
+ 
+@@ -480,7 +487,7 @@ void
+ DownloadList::pause(Download* download, int flags) {
+   check_contains(download);
+ 
+-  lt_log_print_info(torrent::LOG_TORRENT_INFO, download->info(), "download_list", "Pausing download: flags:%0x.", flags);
++  LT_LOG_DOWNLOAD_DEBUG("pausing download : flags:%0x.", flags);
+ 
+   auto lifetime = download->lifetime();
+ 
+@@ -523,7 +530,7 @@ DownloadList::pause(Download* download, int flags) {
+     //control->core()->download_store()->save(download);
+ 
+   } catch (torrent::local_error& e) {
+-    lt_log_print(torrent::LOG_TORRENT_ERROR, "Could not pause download: %s", e.what());
++    LT_LOG_DOWNLOAD_EVENTS("could not pause download : %s", e.what());
+   }
+ }
+ 
+@@ -531,7 +538,7 @@ void
+ DownloadList::check_hash(Download* download) {
+   check_contains(download);
+ 
+-  lt_log_print_info(torrent::LOG_TORRENT_INFO, download->info(), "download_list", "Checking hash.");
++  LT_LOG_DOWNLOAD_DEBUG("checking hash", 0);
+ 
+   try {
+     if (rpc::call_command_value("d.hashing", rpc::make_target(download)) != Download::variable_hashing_stopped)
+@@ -540,7 +547,7 @@ DownloadList::check_hash(Download* download) {
+     hash_queue(download, Download::variable_hashing_rehash);
+ 
+   } catch (torrent::local_error& e) {
+-    lt_log_print(torrent::LOG_TORRENT_ERROR, "Could not check hash: %s", e.what());
++    LT_LOG_DOWNLOAD_EVENTS("could not check hash : %s", e.what());
+   }
+ }
+ 
+@@ -548,7 +555,7 @@ void
+ DownloadList::hash_done(Download* download) {
+   check_contains(download);
+ 
+-  lt_log_print_info(torrent::LOG_TORRENT_INFO, download->info(), "download_list", "Hash done.");
++  LT_LOG_DOWNLOAD_DEBUG("hash done", 0);
+ 
+   if (download->is_hash_checking() || download->is_active())
+     throw torrent::internal_error("DownloadList::hash_done(...) download in invalid state.");
+@@ -613,7 +620,8 @@ DownloadList::hash_done(Download* download) {
+       confirm_finished(download);
+     } else {
+       download->set_message("Hash check on download completion found bad chunks.");
+-      lt_log_print(torrent::LOG_TORRENT_ERROR, "Hash check on download completion found bad chunks.");
++      LT_LOG_DOWNLOAD_EVENTS("hash check on download completion found bad chunks", 0);
++
+       DL_TRIGGER_EVENT(download, "event.download.hash_final_failed");
+     }
+ 
+@@ -634,7 +642,7 @@ void
+ DownloadList::hash_queue(Download* download, int type) {
+   check_contains(download);
+ 
+-  lt_log_print_info(torrent::LOG_TORRENT_INFO, download->info(), "download_list", "Hash queue.");
++  LT_LOG_DOWNLOAD_DEBUG("hash queue : type:%d", type);
+ 
+   if (rpc::call_command_value("d.hashing", rpc::make_target(download)) != Download::variable_hashing_stopped)
+     throw torrent::internal_error("DownloadList::hash_queue(...) hashing already queued.");
+@@ -678,7 +686,7 @@ void
+ DownloadList::received_finished(Download* download) {
+   check_contains(download);
+ 
+-  lt_log_print_info(torrent::LOG_TORRENT_INFO, download->info(), "download_list", "Received finished.");
++  LT_LOG_DOWNLOAD_DEBUG("received finished", 0);
+ 
+   if (rpc::call_command_value("pieces.hash.on_completion"))
+     // Set some 'checking_finished_thingie' variable to make hash_done
+@@ -693,7 +701,7 @@ void
+ DownloadList::confirm_finished(Download* download) {
+   check_contains(download);
+ 
+-  lt_log_print_info(torrent::LOG_TORRENT_INFO, download->info(), "download_list", "Confirming finished.");
++  LT_LOG_DOWNLOAD_DEBUG("confirming finished", 0);
+ 
+   if (download->download()->info()->is_meta_download())
+     return process_meta_download(download);
+@@ -768,7 +776,7 @@ DownloadList::confirm_finished(Download* download) {
+ 
+ void
+ DownloadList::process_meta_download(Download* download) {
+-  lt_log_print_info(torrent::LOG_TORRENT_INFO, download->info(), "download_list", "Processing meta download.");
++  LT_LOG_DOWNLOAD_DEBUG("processing meta download", 0);
+ 
+   rpc::call_command("d.stop", torrent::Object(), rpc::make_target(download));
+   rpc::call_command("d.close", torrent::Object(), rpc::make_target(download));
+@@ -778,7 +786,7 @@ DownloadList::process_meta_download(Download* download) {
+   std::fstream file(metafile.c_str(), std::ios::in | std::ios::binary);
+ 
+   if (!file.is_open()) {
+-    lt_log_print(torrent::LOG_TORRENT_ERROR, "Could not read download metadata.");
++    LT_LOG_DOWNLOAD_EVENTS("could not read download metadata : %s", metafile.c_str());
+     return;
+   }
+ 
+@@ -786,7 +794,7 @@ DownloadList::process_meta_download(Download* download) {
+   file >> bencode->insert_key("info", torrent::Object());
+ 
+   if (file.fail()) {
+-    lt_log_print(torrent::LOG_TORRENT_ERROR, "Could not create download, the input is not a valid torrent.");
++    LT_LOG_DOWNLOAD_EVENTS("could not create download, the input is not a valid torrent : %s", metafile.c_str());
+     return;
+   }
+ 
+@@ -794,8 +802,10 @@ DownloadList::process_meta_download(Download* download) {
+ 
+   // Steal the keys we still need. The old download has no use for them.
+   bencode->insert_key("rtorrent_meta_download", torrent::Object()).swap(download->bencode()->get_key("rtorrent_meta_download"));
++
+   if (download->bencode()->has_key("announce"))
+     bencode->insert_key("announce", torrent::Object()).swap(download->bencode()->get_key("announce"));
++
+   if (download->bencode()->has_key("announce-list"))
+     bencode->insert_key("announce-list", torrent::Object()).swap(download->bencode()->get_key("announce-list"));
+ 
+diff --git a/src/core/download_list.h b/src/core/download_list.h
+index c79bbbae..d7841237 100644
+--- a/src/core/download_list.h
++++ b/src/core/download_list.h
+@@ -1,6 +1,7 @@
+ #ifndef RTORRENT_CORE_DOWNLOAD_LIST_H
+ #define RTORRENT_CORE_DOWNLOAD_LIST_H
+ 
++#include <cstdint>
+ #include <iosfwd>
+ #include <list>
+ #include <memory>
+diff --git a/src/core/manager.cc b/src/core/manager.cc
+index 1fcb55c1..8989d448 100644
+--- a/src/core/manager.cc
++++ b/src/core/manager.cc
+@@ -440,7 +440,8 @@ Manager::receive_hashing_changed() {
+       } else {
+         (*itr)->set_hash_failed(true);
+         (*itr)->set_message("Hashing failed: " + std::string(e.what()));
+-        lt_log_print(torrent::LOG_TORRENT_ERROR, "Hashing failed: %s", e.what());
++
++        lt_log_print_hash(torrent::LOG_TORRENT_EVENTS, (*itr)->info()->hash(), "hashing failed : %s", e.what());
+       }
+     }
+   }
+diff --git a/src/main.cc b/src/main.cc
+index 980a2450..ad6d9f78 100644
+--- a/src/main.cc
++++ b/src/main.cc
+@@ -152,10 +152,11 @@ main(int argc, char** argv) {
+ 
+     SignalHandler::set_sigaction_handler(SIGBUS, &handle_sigbus);
+ 
+-    torrent::log_add_group_output(torrent::LOG_NOTICE,         "important");
++    torrent::log_add_group_output(torrent::LOG_ERRORS,         "important");
+     torrent::log_add_group_output(torrent::LOG_DHT_ERROR,      "important");
+ 
+-    torrent::log_add_group_output(torrent::LOG_INFO,           "complete");
++    torrent::log_add_group_output(torrent::LOG_ERRORS,         "complete");
++    torrent::log_add_group_output(torrent::LOG_EVENTS,         "complete");
+     torrent::log_add_group_output(torrent::LOG_DHT_ERROR,      "complete");
+     torrent::log_add_group_output(torrent::LOG_DHT_CONTROLLER, "complete");
+ 
+@@ -175,17 +176,17 @@ main(int argc, char** argv) {
+ 
+     if (OptionParser::has_flag('D', argc, argv)) {
+       rpc::call_command_set_value("method.use_deprecated.set", true);
+-      lt_log_print(torrent::LOG_WARN, "Enabled deprecated commands.");
++      lt_log_print(torrent::LOG_ERRORS, "Enabled deprecated commands.");
+     }
+ 
+     if (OptionParser::has_flag('I', argc, argv)) {
+       rpc::call_command_set_value("method.use_intermediate.set", 0);
+-      lt_log_print(torrent::LOG_WARN, "Disabled intermediate commands.");
++      lt_log_print(torrent::LOG_ERRORS, "Disabled intermediate commands.");
+     }
+ 
+     if (OptionParser::has_flag('K', argc, argv)) {
+       rpc::call_command_set_value("method.use_intermediate.set", 2);
+-      lt_log_print(torrent::LOG_WARN, "Allowing intermediate commands without xmlrpc.");
++      lt_log_print(torrent::LOG_ERRORS, "Allowing intermediate commands without xmlrpc.");
+     }
+ 
+     rpc::parse_command_multiple
+@@ -372,11 +373,11 @@ main(int argc, char** argv) {
+     rpc::rpc.mark_safe("network.http.proxy_address");
+ 
+     CMD2_ANY_VALUE_V("network.http.max_total_connections.set", [](auto, auto) {
+-        lt_log_print(torrent::LOG_WARN, "network.http.max_total_connections.set is deprecated, use system.sockets.http.min_alloc.set instead.");
++        lt_log_print(torrent::LOG_ERRORS, "network.http.max_total_connections.set is deprecated, use system.sockets.http.min_alloc.set instead.");
+       });
+ 
+     CMD2_ANY_VALUE_V("network.max_open_files.set", [](auto, auto) {
+-        lt_log_print(torrent::LOG_WARN, "network.max_open_files.set is deprecated, use system.sockets.files.min_alloc.set instead.");
++        lt_log_print(torrent::LOG_ERRORS, "network.max_open_files.set is deprecated, use system.sockets.files.min_alloc.set instead.");
+       });
+ 
+     // TODO: Keep d.directory_base for a while as it is widely used.
+@@ -419,16 +420,16 @@ main(int argc, char** argv) {
+       CMD_REDIRECT("max_memory_usage",      "pieces.memory.max.set");
+ 
+       CMD_ANY_LIST("throttle.ip", []( auto, auto) {
+-          lt_log_print(torrent::LOG_WARN, "The 'throttle.ip' command is deprecated and does nothing.");
++          lt_log_print(torrent::LOG_ERRORS, "The 'throttle.ip' command is deprecated and does nothing.");
+           return torrent::Object();
+         });
+ 
+       CMD_ANY("network.port_open", [](auto, auto) {
+-          lt_log_print(torrent::LOG_WARN, "The 'network.port_open' command is deprecated and does nothing.");
++          lt_log_print(torrent::LOG_ERRORS, "The 'network.port_open' command is deprecated and does nothing.");
+           return torrent::Object();
+         });
+       CMD_ANY("network.port_open.set", [](auto, auto) {
+-          lt_log_print(torrent::LOG_WARN, "The 'network.port_open.set' command is deprecated and does nothing.");
++          lt_log_print(torrent::LOG_ERRORS, "The 'network.port_open.set' command is deprecated and does nothing.");
+           return torrent::Object();
+         });
+ 
+@@ -443,7 +444,7 @@ main(int argc, char** argv) {
+ 
+       if (fd == -1) {
+         if (errno == EAFNOSUPPORT) {
+-          lt_log_print(torrent::LOG_WARN, "disabling ipv6 support, not available on system");
++          lt_log_print(torrent::LOG_ERRORS, "disabling ipv6 support, not available on system");
+           rpc::call_command_set_value("network.block.ipv6.set", true);
+         }
+       } else {
+@@ -455,7 +456,7 @@ main(int argc, char** argv) {
+ 
+     parse_config_file(argc, argv, [](auto& path) {
+         if (path.empty()) {
+-          lt_log_print(torrent::LOG_WARN, "Ignoring rtorrent.rc.");
++          lt_log_print(torrent::LOG_ERRORS, "Ignoring rtorrent.rc.");
+           return;
+         }
+ 
+@@ -499,7 +500,7 @@ main(int argc, char** argv) {
+               << e.what() << std::endl
+               << e.backtrace();
+ 
+-    lt_log_print_dump(torrent::LOG_CRITICAL, e.backtrace().c_str(), e.backtrace().size(),
++    lt_log_print_dump(torrent::LOG_ERRORS, e.backtrace().c_str(), e.backtrace().size(),
+                       "Caught internal_error: '%s'.", e.what());
+ 
+     torrent::log_cleanup();
+@@ -511,7 +512,7 @@ main(int argc, char** argv) {
+ 
+     std::cout << "rtorrent: caught" << typeid(e).name() << " : " << e.what() << std::endl;
+ 
+-    lt_log_print(torrent::LOG_CRITICAL, "Caught exception: '%s'.", e.what());
++    lt_log_print(torrent::LOG_ERRORS, "Caught exception: '%s'.", e.what());
+ 
+     torrent::log_cleanup();
+     return -1;
+@@ -588,9 +589,9 @@ handle_sigbus(int signum, siginfo_t* sa, [[maybe_unused]] void* ptr) {
+ handle_sigbus_exit:
+   std::cout << output.rdbuf();
+ 
+-  if (lt_log_is_valid(torrent::LOG_CRITICAL)) {
++  if (lt_log_is_valid(torrent::LOG_ERRORS)) {
+     std::string dump = output.str();
+-    lt_log_print_dump(torrent::LOG_CRITICAL, dump.c_str(), dump.size(), "Caught signal: '%s'.", signal_reason);
++    lt_log_print_dump(torrent::LOG_ERRORS, dump.c_str(), dump.size(), "Caught signal: '%s'.", signal_reason);
+   }
+ 
+   torrent::log_cleanup();
+@@ -629,9 +630,9 @@ do_panic(int signum) {
+ 
+   std::cout << output.rdbuf();
+ 
+-  if (lt_log_is_valid(torrent::LOG_CRITICAL)) {
++  if (lt_log_is_valid(torrent::LOG_ERRORS)) {
+     std::string dump = output.str();
+-    lt_log_print_dump(torrent::LOG_CRITICAL, dump.c_str(), dump.size(), "Caught signal: '%s.", strsignal(signum));
++    lt_log_print_dump(torrent::LOG_ERRORS, dump.c_str(), dump.size(), "Caught signal: '%s.", strsignal(signum));
+   }
+ 
+   torrent::log_cleanup();
+diff --git a/src/rpc/parse_commands.cc b/src/rpc/parse_commands.cc
+index 06c74f7c..64c5c525 100644
+--- a/src/rpc/parse_commands.cc
++++ b/src/rpc/parse_commands.cc
+@@ -123,6 +123,39 @@ parse_command(target_type target, const char* first, const char* last) {
+   return std::make_pair(commands.call_command(key, args, target), first);
+ }
+ 
++torrent::Object
++parse_command_object(const char* first, const char* last) {
++  first = std::find_if(first, last, [&](char c) { return !command_map_is_space(c); });
++
++  if (first == last || *first == '#')
++    return torrent::Object();
++
++  char key[128];
++
++  first = parse_command_name(first, last, key, key + 128);
++  first = std::find_if(first, last, [&](char c) { return !command_map_is_space(c); });
++
++  if (first == last || *first != '=')
++    throw torrent::input_error("Could not find '=' in command '" + std::string(key) + "'.");
++
++  torrent::Object result = torrent::Object::create_dict_key();
++
++  result.as_dict_key() = key;
++
++  first = parse_whole_list(first + 1, last, &result.as_dict_obj(), &parse_is_delim_command);
++
++  // Find the last character that is part of this command, skipping
++  // the whitespace at the end.
++  first = std::find_if(first, last, [&](char c) { return !command_map_is_space(c); });
++
++  // This helper accepts exactly one command and cannot return where a next
++  // command begins, so reject every non-whitespace suffix, including ';'.
++  if (first != last && *first != '\0')
++    throw torrent::input_error("Junk at end of input.");
++
++  return result;
++}
++
+ torrent::Object
+ parse_command_multiple(target_type target, const char* first, const char* last) {
+   parse_command_type result;
+diff --git a/src/rpc/parse_commands.h b/src/rpc/parse_commands.h
+index e51155f3..cf20c87a 100644
+--- a/src/rpc/parse_commands.h
++++ b/src/rpc/parse_commands.h
+@@ -37,6 +37,9 @@
+ 
+ #include <string>
+ #include <cstring>
++#include <functional>
++#include <utility>
++#include <vector>
+ 
+ #include "xmlrpc.h"
+ #include "rpc_manager.h"
+@@ -67,6 +70,34 @@ parse_command_single(target_type target, const std::string& cmd) {
+   return parse_command(target, cmd.c_str(), cmd.c_str() + cmd.size()).first;
+ }
+ 
++// Parse one RPC command without executing it. Repeated evaluations can use
++// call_object on the result, which handles per-target argument expansion.
++torrent::Object        parse_command_object(const char* first, const char* last);
++
++inline torrent::Object parse_command_object(const std::string& cmd) {
++  return parse_command_object(cmd.c_str(), cmd.c_str() + cmd.size());
++}
++
++// Prepare a multicall's commands once, on the first target that uses them. This
++// keeps empty target lists from parsing commands that would never be evaluated.
++struct preparsed_commands : public std::vector<torrent::Object> {
++  explicit preparsed_commands(std::function<void(preparsed_commands&)> prepare)
++    : m_prepare(std::move(prepare)) {}
++
++  void prepare_if_needed() {
++    if (m_prepare) {
++      // Clear before invoking: the callback may inspect this vector, and a
++      // throwing callback must not be run again against partially added items.
++      auto prepare = std::move(m_prepare);
++      m_prepare = {};
++      prepare(*this);
++    }
++  }
++
++private:
++  std::function<void(preparsed_commands&)> m_prepare;
++};
++
+ inline torrent::Object
+ parse_command_multiple_std(const std::string& cmd, target_type target = rpc::make_target()) {
+   return parse_command_multiple(target, cmd.c_str(), cmd.c_str() + cmd.size());
+diff --git a/src/scgi/thread_scgi.cc b/src/scgi/thread_scgi.cc
+index 3ff0d5f6..ed26f5f7 100644
+--- a/src/scgi/thread_scgi.cc
++++ b/src/scgi/thread_scgi.cc
+@@ -82,7 +82,7 @@ ThreadScgi::change_rpc_log() {
+     ::close(scgi()->log_fd());
+     scgi()->set_log_fd(-1);
+ 
+-    lt_log_print(torrent::LOG_NOTICE, "Closed RPC log.", 0);
++    lt_log_print(torrent::LOG_EVENTS, "Closed RPC log.", 0);
+   }
+ 
+   if (m_rpc_log_filename.empty())
+@@ -91,11 +91,11 @@ ThreadScgi::change_rpc_log() {
+   scgi()->set_log_fd(open(expand_path(m_rpc_log_filename).c_str(), O_WRONLY | O_APPEND | O_CREAT, 0644));
+ 
+   if (scgi()->log_fd() == -1) {
+-    lt_log_print(torrent::LOG_NOTICE, "Could not open RPC log file '%s'.", m_rpc_log_filename.c_str());
++    lt_log_print(torrent::LOG_EVENTS, "Could not open RPC log file '%s'.", m_rpc_log_filename.c_str());
+     return;
+   }
+ 
+-  lt_log_print(torrent::LOG_NOTICE, "Logging RPC events to '%s'.", m_rpc_log_filename.c_str());
++  lt_log_print(torrent::LOG_EVENTS, "Logging RPC events to '%s'.", m_rpc_log_filename.c_str());
+ }
+ 
+ void
+diff --git a/src/session/session_manager.cc b/src/session/session_manager.cc
+index d268dfc7..2536d133 100644
+--- a/src/session/session_manager.cc
++++ b/src/session/session_manager.cc
+@@ -417,7 +417,7 @@ SessionManager::process_finished_saves() {
+         continue;
+       }
+ 
+-      lt_log_print(torrent::LOG_ERROR, "Storage errors saving session data for download: ignored:%u : %s", m_ignored_storage_error_count, e.what());
++      lt_log_print(torrent::LOG_ERRORS, "Storage errors saving session data for download: ignored:%u : %s", m_ignored_storage_error_count, e.what());
+ 
+       m_last_storage_error_message = torrent::this_thread::cached_time();
+       m_ignored_storage_error_count = 0;
+diff --git a/src/setup.cc b/src/setup.cc
+index bd6766ba..4160483c 100644
+--- a/src/setup.cc
++++ b/src/setup.cc
+@@ -142,7 +142,7 @@ parse_config_file_comments(const std::string& path) {
+     else
+       throw torrent::input_error("Unknown command in config file comment: " + line);
+ 
+-    lt_log_print(torrent::LOG_NOTICE, "Pre-config command: %s=%s", command.c_str(), args.c_str());
++    lt_log_print(torrent::LOG_EVENTS, "Pre-config command: %s=%s", command.c_str(), args.c_str());
+   }
+ }
+ 
+diff --git a/src/ui/download_list.cc b/src/ui/download_list.cc
+index 18e8b4b7..12d5efb5 100644
+--- a/src/ui/download_list.cc
++++ b/src/ui/download_list.cc
+@@ -366,7 +366,7 @@ DownloadList::receive_exit_input(Input type) {
+     }
+ 
+   } catch (torrent::input_error& e) {
+-    lt_log_print(torrent::LOG_WARN, "Input failed: %s", e.what());
++    lt_log_print(torrent::LOG_ERRORS, "Input failed: %s", e.what());
+   }
+ 
+   activate_display(DISPLAY_DOWNLOAD_LIST);
+diff --git a/src/ui/element_download_list.cc b/src/ui/element_download_list.cc
+index 9f651fd6..f0d69354 100644
+--- a/src/ui/element_download_list.cc
++++ b/src/ui/element_download_list.cc
+@@ -119,7 +119,7 @@ ElementDownloadList::receive_command(const char* cmd) {
+     m_view->set_last_changed();
+ 
+   } catch (torrent::input_error& e) {
+-    lt_log_print(torrent::LOG_WARN, "Command failed: %s", e.what());
++    lt_log_print(torrent::LOG_ERRORS, "Command failed: %s", e.what());
+     return;
+   }
+ }
+@@ -197,8 +197,9 @@ ElementDownloadList::receive_cycle_throttle() {
+     return;
+ 
+   core::Download* download = m_view->focus()->get();
++
+   if (download->is_active()) {
+-    lt_log_print(torrent::LOG_TORRENT_WARN, "Cannot change throttle on active download.");
++    lt_log_print_hash(torrent::LOG_TORRENT_DEBUG, download->info()->hash(), "cannot change throttle on active download");
+     return;
+   }
+ 
+diff --git a/src/ui/root.cc b/src/ui/root.cc
+index e9ed4437..f1893883 100644
+--- a/src/ui/root.cc
++++ b/src/ui/root.cc
+@@ -380,7 +380,7 @@ Root::set_input_history_size(int size) {
+ void
+ Root::load_input_history() {
+   if (m_control == nullptr || !session_thread::manager()->is_used()) {
+-    lt_log_print(torrent::LOG_DEBUG, "ignoring input history file");
++    lt_log_print(torrent::LOG_DEBUG_TRACE, "ignoring input history file");
+     return;
+   }
+ 
+@@ -415,10 +415,10 @@ Root::load_input_history() {
+     }
+ 
+     if (history_file.bad()) {
+-      lt_log_print(torrent::LOG_DEBUG, "input history file corrupted, discarding (path:%s)", history_filename.c_str());
++      lt_log_print(torrent::LOG_DEBUG_TRACE, "input history file corrupted, discarding (path:%s)", history_filename.c_str());
+       return;
+     } else {
+-      lt_log_print(torrent::LOG_DEBUG, "input history file read (path:%s)", history_filename.c_str());
++      lt_log_print(torrent::LOG_DEBUG_TRACE, "input history file read (path:%s)", history_filename.c_str());
+     }
+ 
+     for (const auto& [entry, category] : input_history_tmp) {
+@@ -441,7 +441,7 @@ Root::load_input_history() {
+       }
+     }
+   } else {
+-    lt_log_print(torrent::LOG_DEBUG, "could not open input history file (path:%s)", history_filename.c_str());
++    lt_log_print(torrent::LOG_DEBUG_TRACE, "could not open input history file (path:%s)", history_filename.c_str());
+   }
+ }
+ 
+@@ -455,7 +455,7 @@ Root::save_input_history() {
+   auto history_file         = std::fstream(history_filename_tmp.c_str(), std::ios::out | std::ios::trunc);
+ 
+   if (!history_file.is_open()) {
+-    lt_log_print(torrent::LOG_DEBUG, "could not open input history file for writing (path:%s)", history_filename.c_str());
++    lt_log_print(torrent::LOG_DEBUG_TRACE, "could not open input history file for writing (path:%s)", history_filename.c_str());
+     return;
+   }
+ 
+@@ -471,10 +471,10 @@ Root::save_input_history() {
+   history_file.close();
+ 
+   if (!history_file.good()) {
+-    lt_log_print(torrent::LOG_DEBUG, "input history file corrupted during writing, discarding (path:%s)", history_filename.c_str());
++    lt_log_print(torrent::LOG_DEBUG_TRACE, "input history file corrupted during writing, discarding (path:%s)", history_filename.c_str());
+     return;
+   } else {
+-    lt_log_print(torrent::LOG_DEBUG, "input history file written (path:%s)", history_filename.c_str());
++    lt_log_print(torrent::LOG_DEBUG_TRACE, "input history file written (path:%s)", history_filename.c_str());
+   }
+ 
+   std::rename(history_filename_tmp.c_str(), history_filename.c_str());
+diff --git a/test/rpc/test_command.cc b/test/rpc/test_command.cc
+index 969b68f7..2ee12f24 100644
+--- a/test/rpc/test_command.cc
++++ b/test/rpc/test_command.cc
+@@ -2,7 +2,10 @@
+ 
+ #include "test/rpc/test_command.h"
+ 
++#include <torrent/exceptions.h>
++
+ #include "rpc/command.h"
++#include "rpc/parse_commands.h"
+ 
+ CPPUNIT_TEST_SUITE_REGISTRATION(TestCommand);
+ 
+@@ -83,3 +86,50 @@ TestCommand::test_stack_double() {
+   rpc::command_base::pop_stack(&stack_first, last_stack_first);
+   CPPUNIT_ASSERT(command_stack_all_empty());
+ }
++
++void
++TestCommand::test_preparsed_commands() {
++  unsigned int prepare_count = 0;
++  rpc::preparsed_commands commands([&prepare_count](auto& prepared) {
++    ++prepare_count;
++    // Reentrant access must not invoke the same callback recursively.
++    prepared.prepare_if_needed();
++    prepared.push_back(rpc::parse_command_object("string.length=abc"));
++  });
++
++  CPPUNIT_ASSERT_EQUAL(0u, prepare_count);
++  CPPUNIT_ASSERT(commands.empty());
++
++  commands.prepare_if_needed();
++  CPPUNIT_ASSERT_EQUAL(1u, prepare_count);
++
++  size_t count = 0;
++  for (auto& itr : commands) {
++    CPPUNIT_ASSERT(itr.is_dict_key());
++    ++count;
++  }
++
++  CPPUNIT_ASSERT_EQUAL(size_t(1), count);
++  CPPUNIT_ASSERT_EQUAL(1u, prepare_count);
++
++  for (auto& itr : commands)
++    CPPUNIT_ASSERT(itr.is_dict_key());
++
++  CPPUNIT_ASSERT_EQUAL(1u, prepare_count);
++}
++
++void
++TestCommand::test_parse_command_object() {
++  auto command = rpc::parse_command_object("\tstring.length=abc  ");
++  CPPUNIT_ASSERT(command.is_dict_key());
++  CPPUNIT_ASSERT_EQUAL(std::string("string.length"), command.as_dict_key());
++
++  // This helper has no way to return the next-command pointer, so it must not
++  // silently accept a multipart command separated by ';'.
++  CPPUNIT_ASSERT_THROW(rpc::parse_command_object("string.length=abc;string.length=def"), torrent::input_error);
++
++  // Unlike parse_command (which parses command files), this helper handles one
++  // multicall command and must reject newline boundaries, including CRLF.
++  CPPUNIT_ASSERT_THROW(rpc::parse_command_object("string.length=abc\nstring.length=def"), torrent::input_error);
++  CPPUNIT_ASSERT_THROW(rpc::parse_command_object("string.length=abc\r\nstring.length=def"), torrent::input_error);
++}
+diff --git a/test/rpc/test_command.h b/test/rpc/test_command.h
+index 68ce4dcd..16d19e70 100644
+--- a/test/rpc/test_command.h
++++ b/test/rpc/test_command.h
+@@ -5,10 +5,14 @@ class TestCommand : public test_fixture {
+ 
+   CPPUNIT_TEST(test_stack);
+   CPPUNIT_TEST(test_stack_double);
++  CPPUNIT_TEST(test_preparsed_commands);
++  CPPUNIT_TEST(test_parse_command_object);
+ 
+   CPPUNIT_TEST_SUITE_END();
+ 
+ public:
+   void test_stack();
+   void test_stack_double();
++  void test_preparsed_commands();
++  void test_parse_command_object();
+ };
+diff --git a/test/src/test_setup.cc b/test/src/test_setup.cc
+index 9dd8bcc5..6cacaf8d 100644
+--- a/test/src/test_setup.cc
++++ b/test/src/test_setup.cc
+@@ -57,7 +57,7 @@ assert_arg_count_error(const std::string& line) {
+ 
+ void
+ TestSetup::test_config_comment_log_add_output() {
+-  temp_config_file file("# do:log.add_output=debug,test_output");
++  temp_config_file file("# do:log.add_output=debug_trace,test_output");
+ 
+   CPPUNIT_ASSERT_NO_THROW(parse_config_file_comments(file.path()));
+ }
+@@ -69,10 +69,10 @@ TestSetup::test_config_comment_log_add_output_no_args() {
+ 
+ void
+ TestSetup::test_config_comment_log_add_output_one_arg() {
+-  assert_arg_count_error("# do:log.add_output=debug");
++  assert_arg_count_error("# do:log.add_output=debug_trace");
+ }
+ 
+ void
+ TestSetup::test_config_comment_log_add_output_too_many_args() {
+-  assert_arg_count_error("# do:log.add_output=debug,test_output,extra");
++  assert_arg_count_error("# do:log.add_output=debug_trace,test_output,extra");
+ }
