@@ -87,7 +87,6 @@ set -uex
 umask 0022
 fetch-dep libtorrent
 cd libtorrent
-patch -p1 -i /patches/lt-0_16_25-update_to_master_plus_reqq_tweak.diff
 autoreconf -fiv
 CFLAGS="${CFLAGS// -Werror=implicit-function-declaration/}" CXXFLAGS="${CXXFLAGS// -Werror=implicit-function-declaration/}" ./configure --prefix=/opt --disable-debug
 make -j$(getconf _NPROCESSORS_ONLN)
@@ -102,7 +101,6 @@ set -uex
 umask 0022
 fetch-dep rtorrent
 cd rtorrent
-patch -p1 -i /patches/rt-0_16_25-update_to_master.diff
 autoreconf -fiv
 CFLAGS="${CFLAGS// -Werror=implicit-function-declaration/}" CXXFLAGS="${CXXFLAGS// -Werror=implicit-function-declaration/}" ./configure --prefix=/opt --disable-debug --with-xmlrpc-tinyxml2 --without-ncurses
 make -j$(getconf _NPROCESSORS_ONLN)
