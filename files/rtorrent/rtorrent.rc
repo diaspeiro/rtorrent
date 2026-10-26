@@ -14,8 +14,9 @@ method.insert = cfg.session, private|const|string, (cat, (cfg.basedir), "data/se
 method.insert = cfg.watch, private|const|string, (cat, (cfg.basedir), "data/watch/")
 
 log.open_file.flush = logfile, (cfg.logfile)
-log.add_output = info, logfile
-log.print = info, "rtorrent starting, logging to ", (cfg.logfile)
+log.add_output = errors, logfile
+log.add_output = events, logfile
+log.print = events, "rtorrent starting, logging to ", (cfg.logfile)
 
 # Create instance directories
 execute.throw = mkdir, -p,\
