@@ -1,13 +1,13 @@
 {
   "rtorrent": {
-    "version": "0.16.28",
-    "url": "https://github.com/rakshasa/rtorrent/releases/download/v0.16.28/rtorrent-0.16.28.tar.gz",
-    "sha256": "5b668c625c45fb452018c27480e1a01ccbc33d850cb109209966651dabec207a"
+    "version": "0.16.29",
+    "url": "https://github.com/rakshasa/rtorrent/releases/download/v0.16.29/rtorrent-0.16.29.tar.gz",
+    "sha256": "baaa11030634bae737659f0ba55b62cba19e9cb3da48654b45eb295e14ea5d51"
   },
   "libtorrent": {
-    "version": "0.16.28",
-    "url": "https://github.com/rakshasa/rtorrent/releases/download/v0.16.28/libtorrent-0.16.28.tar.gz",
-    "sha256": "569650d86cf757bd921f72c105f289128f7d918c19c2aaae5a350ffa74c4913e"
+    "version": "0.16.29",
+    "url": "https://github.com/rakshasa/rtorrent/releases/download/v0.16.29/libtorrent-0.16.29.tar.gz",
+    "sha256": "6e920be2d548d1b4a57221566d7297c656812f1ffade38f0e633d05a3fc12583"
   },
   "curl": {
     "version": "8.23.0",
